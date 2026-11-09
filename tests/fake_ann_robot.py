@@ -1,4 +1,4 @@
-"""A virtual Thymio 3 for running src/py/ann_mode.py off the robot.
+"""A virtual Thymio 3 for running src/py/ann_mode.py (and src/py/ai_mode.py) off the robot.
 
 It stands in for the `thymio` and `time` modules of MicroPython, with a virtual clock
 (sleep_ms advances time instead of waiting) that moves in whole ticks of the mode (20 ms):
@@ -63,6 +63,7 @@ class VirtualRobot:
         self.t_ms = 0
         self.tick = 0                      # the tick the mode is in (0 = the first)
         self.prox = [0] * 7
+        self.ground = [900, 900]          # the two ground sensors (lower is darker)
         self.buttons = [0, 0, 0, 0, 0]     # BACKWARD, LEFT, CENTER, FORWARD, RIGHT
         self.rgb = [(0, 0, 0)] * 4
         self.rgb_writes = []
@@ -141,6 +142,13 @@ def make_modules(robot):
         def value(self):
             return robot.prox[self.i]
 
+    class Ground:
+        def __init__(self, i):
+            self.i = i
+
+        def value(self):
+            return robot.ground[self.i]
+
     th = types.ModuleType("thymio")
     th.BEHAVIORS = Behaviors
     th.MOTORS = Motors
@@ -151,6 +159,7 @@ def make_modules(robot):
     th.LEDS_LEGO_FRONT = lambda i: Led(robot.lego_f, i)
     th.LEDS_LEGO_BACK = lambda i: Led(robot.lego_b, i)
     th.PROXIMITY = Prox
+    th.GROUND = Ground
     th.get_battery_voltage = lambda: 4012
 
     tm = types.ModuleType("time")
@@ -172,7 +181,7 @@ def make_modules(robot):
     return th, tm
 
 
-def load(source, robot, extra=""):
+def load(source, robot, extra="", name="ann_mode"):
     """Run the mode's source (plus `extra`, e.g. a final run(...)) on the virtual robot until max_ticks."""
     import sys
     thymio_mod, time_mod = make_modules(robot)
@@ -186,9 +195,9 @@ def load(source, robot, extra=""):
 
     saved = {k: sys.modules.get(k) for k in ("thymio", "time")}
     sys.modules["thymio"], sys.modules["time"] = thymio_mod, time_mod
-    ns = {"print": fake_print, "__name__": "ann_mode"}
+    ns = {"print": fake_print, "__name__": name}
     try:
-        exec(compile(source + extra, "ann_mode.py", "exec"), ns)
+        exec(compile(source + extra, name + ".py", "exec"), ns)
     except StopSim:
         pass
     finally:

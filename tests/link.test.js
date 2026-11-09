@@ -22,6 +22,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE = fs.readFileSync(path.join(here, '..', 'src', 'py', 'ann_mode.py'), 'utf8');
 const MODULE_TEXT = buildModuleFrom(SOURCE);
 const MODULE = { name: moduleNameFor(MODULE_TEXT), text: MODULE_TEXT };
+const AI_TEXT = buildModuleFrom(fs.readFileSync(path.join(here, '..', 'src', 'py', 'ai_mode.py'), 'utf8'));
+const AI_MODULE = { name: moduleNameFor(AI_TEXT, 'aim_'), text: AI_TEXT };
 const EV = { connected: 'thymio-connected', manualReconnect: 'thymio-prompt-manual-reconnection', stdout: 'thymio-std-out-values', pyStatus: 'thymio-python-execution-status', pyLoad: 'thymio-python-load-result' };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (cond, ms = 8000) => {
@@ -36,7 +38,7 @@ function link(options = {}, tele = null) {
   const events = [];
   const log = [];
   const core = new RobotBackendCore((e) => { events.push(e); tele?.push(e); }, {
-    thymio: fake, events: EV, module: MODULE, doc: document, win: new EventTarget(), onLog: (kind, text) => log.push([kind, text]),
+    thymio: fake, events: EV, module: MODULE, aiModule: AI_MODULE, doc: document, win: new EventTarget(), onLog: (kind, text) => log.push([kind, text]),
     liveAckMs: 500, helloTimeoutMs: 3000, moduleHelloTimeoutMs: 3000, haltTimeoutMs: 1500, unknownHaltMs: 300, ...options,
   });
   core.attach();
@@ -161,4 +163,28 @@ test('the store follows the events, and keeps a history', async () => {
 test('runArgs: the arguments of the launcher', () => {
   assert.equal(runArgs({}), '30, 670, 16, "", 670');
   assert.equal(runArgs({ step: 5, baseLeft: 90, baseRight: 70, forget: 0, weights: { left: [1, 0, 0, 0, 0, 0, -2.5], right: [0, 0, 0, 0, 0, 0, 0] } }), '50, 900, 0, "10,0,0,0,0,0,-25,0,0,0,0,0,0,0", 700');
+});
+
+test('the AI Lab program: installed when it is first started, it carries out actions and says when they are done', async () => {
+  const l = await connected();
+  l.core.setProgram('ai');
+  await l.core.start({ duration: 0.2, pause: 0.05, maxSpeed: 120 });
+  assert.ok(window.fakeRobot.files.includes(`${AI_MODULE.name}.py`), 'the module is on the robot');
+  await until(() => l.last('s') && l.last('a'));
+  assert.deepEqual(l.last('s'), { type: 's', duration: 0.2, pause: 0.05, maxSpeed: 120, turnGain: 100, t: l.last('s').t });
+  assert.equal(l.last('a').phase, 'idle');
+  const ms = await l.core.act(1);
+  assert.ok(ms > 0);
+  await until(() => l.last('done'));
+  assert.deepEqual([l.last('go').action, l.last('done').action], [1, 1]);
+  // settings with an action: the action is carried out with them
+  await l.core.act(2, { maxSpeed: 200 });
+  await until(() => l.last('s').maxSpeed === 200 && l.last('done').action === 2);
+  // the learning mode again, on the same link
+  l.core.setProgram('ann');
+  await l.core.start({});
+  await until(() => l.last('w') && l.last('n'));
+  assert.ok(window.fakeRobot.files.includes(`${MODULE.name}.py`) && window.fakeRobot.files.includes(`${AI_MODULE.name}.py`), 'both modules stay');
+  await l.core.disconnect();
+  l.core.detach();
 });

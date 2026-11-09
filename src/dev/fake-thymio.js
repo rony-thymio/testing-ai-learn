@@ -70,19 +70,39 @@ function stepOnce(r) {
 }
 
 function startMode(step10, base10, forgetS, weights, base10r = null) {
+  startProgram({ step10, base10, base10r, forgetS, weights });
+}
+
+function startProgram(init) {
   const r = { kind: 'mode', timer: 0 };
   run = r;
   setTimeout(() => {                                // the interpreter compiles the module and starts
     if (run !== r) return;
-    for (const l of robot.start({ step10, base10, base10r, forgetS, weights }).lines) say(l);
+    for (const l of robot.start(init).lines) say(l);
     r.timer = setInterval(() => stepOnce(r), 20 / flags.slow);
   }, 350);
 }
 
 const LAUNCHER = /^import (ann_\w+)\s+\1\.run\((\d+), (\d+), (\d+), "([-0-9,]*)"(?:, (\d+))?\)/m;
 const WHOLE = /\nrun\((\d+), (\d+), (\d+), "([-0-9,]*)"(?:, (\d+))?\)\s*$/;
+// the AI Lab program (ai_mode.py): run(duration_cs, pause_cs, max_speed, turn_gain)
+const AI_LAUNCHER = /^import (aim_\w+)\s+\1\.run\((\d+), (\d+), (\d+), (\d+)\)/m;
+const AI_WHOLE = /\nrun\((\d+), (\d+), (\d+), (\d+)\)\s*$/;
+const aiInit = (m) => ({ program: 'ai', durationCs: Number(m[1]), pauseCs: Number(m[2]), maxSpeed: Number(m[3]), turnGain: Number(m[4]) });
 
 function execute(script) {
+  const aiLauncher = AI_LAUNCHER.exec(script);
+  const aiWhole = AI_WHOLE.exec(script);
+  if (aiLauncher) {
+    if (![...files.keys()].includes(`${aiLauncher[1]}.py`)) {
+      print(`Traceback (most recent call last):\r\n  File "mp_script", line 1, in <module>\r\nImportError: no module named '${aiLauncher[1]}'\r\n`, true);
+      setTimeout(() => fire('thymio-python-execution-status', false), 100);
+      return;
+    }
+    startProgram(aiInit(aiLauncher.slice(1)));
+    return;
+  }
+  if (aiWhole && script.includes('def run(duration_cs')) { startProgram(aiInit(aiWhole)); return; }
   const launcher = LAUNCHER.exec(script);
   const whole = WHOLE.exec(script);
   if (launcher) {

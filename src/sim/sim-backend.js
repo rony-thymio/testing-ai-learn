@@ -1,5 +1,6 @@
 import { VirtualRobot } from './virtual-robot.js';
-import { parseRobotLine, encodeMessage, itemsFor } from '../protocol.js';
+import { parseRobotLine, encodeMessage, itemsFor, aiItemsFor } from '../protocol.js';
+import { DEFAULT_ACTION_SETTINGS } from '../ai/actions.js';
 import { TICK_MS } from './ann-mode.js';
 import { DEFAULT_BASE, DEFAULT_STEP, DEFAULT_FORGET } from '../spec.js';
 
@@ -14,12 +15,20 @@ export class SimBackend {
     this.acc = 0;
     this.msg = 0;
     this.kind = 'virtual';
+    this.program = 'ann';            // 'ann': the learning mode of the firmware, 'ai': the AI Lab program
   }
+
+  setProgram(program) { this.program = program; }
 
   get connected() { return this.robot.running; }
 
-  // The mode starts with these weights and settings (defaults: the firmware's).
+  // The program starts with these weights and settings (defaults: the firmware's), or with these settings of the actions.
   start(init = {}) {
+    if (this.program === 'ai') {
+      const a = { ...DEFAULT_ACTION_SETTINGS, ...init };
+      this.emitLines(this.robot.start({ program: 'ai', durationCs: Math.round(a.duration * 100), pauseCs: Math.round(a.pause * 100), maxSpeed: Math.round(a.maxSpeed), turnGain: Math.round(a.turnGain) }).lines);
+      return;
+    }
     const out = this.robot.start({
       step10: Math.round((init.step ?? DEFAULT_STEP) * 10),
       base10: Math.round((init.baseLeft ?? DEFAULT_BASE) * 10),
@@ -45,7 +54,7 @@ export class SimBackend {
 
   // The messages to the mode go through the frames, as with the real robot (one frame at each tick).
   apply(change) {
-    for (const items of itemsFor(change)) {
+    for (const items of (this.program === 'ai' ? aiItemsFor : itemsFor)(change)) {
       this.msg = (this.msg % 15) + 1;
       this.robot.pushFrames(encodeMessage(items, this.msg));
     }

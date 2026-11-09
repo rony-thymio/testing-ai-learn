@@ -8,8 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/ann.test.js tests/protocol.test.js tests/store.test.js tests/arena.test.js tests/chartkit.test.js tests/i18n.test.js tests/share.test.js tests/qr.test.js tests/names.test.js && node tests/link.test.js && python3 -I tests/test_ann_mode.py",
-    "golden": "python3 -I tests/test_ann_mode.py --golden tests/golden-ann.json",
+    "test": "node --test tests/ann.test.js tests/ai.test.js tests/protocol.test.js tests/store.test.js tests/arena.test.js tests/chartkit.test.js tests/i18n.test.js tests/share.test.js tests/qr.test.js tests/names.test.js && node tests/link.test.js && python3 -I tests/test_ann_mode.py && python3 -I tests/test_ai_mode.py",
+    "golden": "python3 -I tests/test_ann_mode.py --golden tests/golden-ann.json && python3 -I tests/test_ai_mode.py --golden tests/golden-ai.json",
     "api:update": "npm update thymio3-ts-api"
   },
   "dependencies": {

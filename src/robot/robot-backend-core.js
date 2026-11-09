@@ -1,5 +1,6 @@
-import { LineAssembler, parseRobotLine, encodeMessage, itemsFor, liveActuator, CMD, KEY } from '../protocol.js';
+import { LineAssembler, parseRobotLine, encodeMessage, itemsFor, aiItemsFor, liveActuator, CMD, KEY } from '../protocol.js';
 import { DEFAULT_BASE } from '../spec.js';
+import { DEFAULT_ACTION_SETTINGS } from '../ai/actions.js';
 
 // The real robot. The mode (src/py/ann_mode.py) runs on the robot, drives the motors itself and prints "@@..." lines
 // that become the same events as the virtual robot's (see SimBackend).
@@ -12,6 +13,10 @@ import { DEFAULT_BASE } from '../spec.js';
 //
 // `thymio` is the API of thymio3-ts-api, `events` its DOM event names. They are injected, with the module
 // (`module: { name, text }`), so that tests can run this without Bluetooth.
+//
+// The same link starts another program, the AI Lab's (src/py/ai_mode.py, `aiModule`, installed as `aim_<hash>.py` the first
+// time it is needed): setProgram('ai') before start(). That program carries out the actions the page chooses (act()) and is
+// told its settings with apply(); the messages are the same frames, with other keys (see aiItemsFor in protocol.js).
 // `onLog(kind, text)` receives everything that happens on the link, for the journal of the settings page: kind is
 // 'info', 'out' (to the robot), 'in' (from the robot) or 'err'.
 
@@ -45,6 +50,12 @@ const clock = () => (typeof performance !== 'undefined' ? performance.now() : Da
 const utf8Length = (text) => new TextEncoder().encode(text).length;
 const bare = (name) => String(name).replace(/^\/+/, '');
 
+// The arguments that start the AI Lab program: the settings of the actions.
+export const aiRunArgs = (init = {}) => {
+  const a = { ...DEFAULT_ACTION_SETTINGS, ...init };
+  return `${Math.round(a.duration * 100)}, ${Math.round(a.pause * 100)}, ${Math.round(a.maxSpeed)}, ${Math.round(a.turnGain)}`;
+};
+
 // The two lines that start the installed mode, and the arguments that carry the state to start from.
 export const runArgs = (init = {}) => {
   const w = init.weights ? [...init.weights.left, ...init.weights.right].map((x) => Math.round(x * 10)).join(',') : '';
@@ -65,13 +76,16 @@ const cloneChange = (c) => ({ ...c, left: c.left && { ...c.left }, right: c.righ
 
 export class RobotBackendCore {
   constructor(emit, {
-    thymio, events, module, doc, win, onLog, minimalScript,
+    thymio, events, module, aiModule, doc, win, onLog, minimalScript,
     helloTimeoutMs = 10000, haltTimeoutMs = 3000, firmwareTimeoutMs = 6000, fileTimeoutMs = 8000, moduleUploadTimeoutMs = 40000,
     unknownHaltMs = 700, moduleHelloTimeoutMs = 5000, uploadTimeoutMs = 30000, byeGraceMs = 40, liveAckMs = 800, liveAttempts = 2, liveGapMs = 60,
   }) {
     this.thymio = thymio;
     this.EVENTS = events;
-    this.module = module || null;
+    // the programs this link can start: the module of each, and the start of its file name on the robot
+    this.programs = { ann: { module: module || null, prefix: 'ann_' }, ai: { module: aiModule || null, prefix: 'aim_' } };
+    this.program = 'ann';
+    this.installed = {};           // program -> the name of its module, once it is known to be on the robot
     this.minimalScript = minimalScript || null;
     this.doc = doc || document;
     this.win = win || window;
@@ -87,7 +101,6 @@ export class RobotBackendCore {
     this.modeRunning = false;      // the mode has said hello and not goodbye
     this.connected = false;
     this.attached = false;
-    this.moduleName = null;        // set once the module is known to be on the robot
     this.queue = Promise.resolve();
     this.known = { weights: null, params: null };   // what the mode last said it holds
     this.motors = [0, 0];                           // what it last said the wheels are told
@@ -98,6 +111,18 @@ export class RobotBackendCore {
   }
 
   get kind() { return 'robot'; }
+
+  // The module of the program that is started, and its name once it is on the robot.
+  get module() { return this.programs[this.program].module; }
+  get moduleName() { return this.installed[this.program] || null; }
+  set moduleName(name) { this.installed[this.program] = name; }
+
+  // 'ann' (the learning mode of the firmware) or 'ai' (the AI Lab program): which one start() starts.
+  setProgram(program) {
+    if (!this.programs[program]) throw new Error(`no program ${program}`);
+    if (program !== this.program) this.pending = [];
+    this.program = program;
+  }
 
   // One operation on the robot at a time: stopping, uploading, starting and testing must not overlap.
   enqueue(label, fn) {
@@ -118,7 +143,8 @@ export class RobotBackendCore {
         this.connected = false;
         this.scriptRunning = false;
         this.modeRunning = false;
-        this.moduleName = null;
+        this.installed = {};
+        this.tried = {};
         this.pending = [];
         this.emit({ type: 'conn', status: 'disconnected' });
         return;
@@ -194,7 +220,7 @@ export class RobotBackendCore {
     else if (ev.type === 'bye' || ev.type === 'exit') this.modeRunning = false;
     if (ev.type === 'w') this.known.weights = { left: [...ev.left], right: [...ev.right] };
     else if (ev.type === 'p') this.known.params = { step: ev.step, baseLeft: ev.baseLeft, baseRight: ev.baseRight, forget: ev.forget };
-    else if (ev.type === 'n') this.motors = ev.motors;
+    else if (ev.type === 'n' || ev.type === 'a') this.motors = ev.motors;
     this.emit(ev);
   }
 
@@ -329,6 +355,7 @@ export class RobotBackendCore {
 
   async ensureModule() {
     const { name, text } = this.module;
+    const prefix = this.programs[this.program].prefix;
     const file = `${name}.py`;
     const size = utf8Length(text);
     const list = async () => (await withTimeout(this.thymio.listFiles(), this.opt.fileTimeoutMs, 'list files')).map((f) => ({ name: bare(f.name), size: f.size }));
@@ -349,7 +376,7 @@ export class RobotBackendCore {
     this.log('info', `module saved in ${Math.round(clock() - t0)} ms`);
     // older versions of the module are of no use
     for (const f of files) {
-      if (f.name !== file && /^ann_[0-9a-f]+\.py$/.test(f.name)) {
+      if (f.name !== file && f.name.startsWith(prefix) && /^[a-z]+_[0-9a-f]+\.py$/.test(f.name)) {
         try { await withTimeout(this.thymio.deleteFile(f.name), this.opt.fileTimeoutMs, 'delete old module'); this.log('info', `old module ${f.name} deleted`); } catch (err) { this.log('err', String(err?.message || err)); }
       }
     }
@@ -426,7 +453,13 @@ export class RobotBackendCore {
       this.pending = [];
       this.modeRunning = false;
       this.known = { weights: null, params: null };
-      const args = runArgs(init);
+      const ai = this.program === 'ai';
+      const args = ai ? aiRunArgs(init) : runArgs(init);
+      // the module of a program that was not started at the connection: installed now (once)
+      if (!this.moduleName && this.module && this.connected && !(this.tried ||= {})[this.program]) {
+        this.tried[this.program] = true;
+        try { await this.ensureModule(); } catch (err) { this.log('err', `module: ${err?.message || err}: the whole program will be sent instead`); this.moduleName = null; }
+      }
       if (this.moduleName) {
         this.quietErrors++;
         try {
@@ -442,7 +475,7 @@ export class RobotBackendCore {
           this.quietErrors--;
         }
       }
-      if (!this.module) throw new Error('no mode to send');
+      if (!this.module) throw new Error('no program to send');
       await this.startScript(`${this.module.text}\nrun(${args})\n`, `mode (${args})`, this.opt.helloTimeoutMs);
     });
   }
@@ -459,9 +492,35 @@ export class RobotBackendCore {
   // that is dragged) are merged and sent together, a message after another, each answered by the mode ("@@ack n").
   apply(change) {
     if (!this.connected || !this.modeRunning) return Promise.resolve();
+    if (this.program === 'ai') return this.aiSend(change);
     mergeChange(this.pending, change);
     return this.scheduleFlush();
   }
+
+  // ---- the AI Lab program: its settings, and the actions it is asked to carry out ---------------------------------
+  // `change`: { duration, pause, maxSpeed, turnGain, light, command, action } (see aiItemsFor). Each is a message of its own,
+  // in order (an action is never merged with another). Resolves with the time it took to be acknowledged, or rejects.
+  aiSend(change) {
+    if (!this.connected || !this.modeRunning) return Promise.reject(new Error('the program is not running'));
+    return this.enqueue('ai message', async () => {
+      let ms = 0;
+      for (const items of aiItemsFor(change)) {
+        try {
+          ms = await this.liveMessage(items);
+          this.failures = 0;
+        } catch (err) {
+          this.failures += 1;
+          this.log('err', `ai message: ${err.message}`);
+          this.emit({ type: 'live-failed', message: err.message, failures: this.failures });
+          throw err;
+        }
+      }
+      return ms;
+    });
+  }
+
+  // Carry out one action (its number in src/ai/actions.js), with these settings if they changed.
+  act(action, settings = {}) { return this.aiSend({ ...settings, action }); }
 
   scheduleFlush() {
     if (this.flushPromise) return this.flushPromise;

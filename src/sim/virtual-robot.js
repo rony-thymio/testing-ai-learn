@@ -1,7 +1,9 @@
-// The virtual Thymio: the arena (sim/arena.js) with the JavaScript twin of the mode in it (sim/ann-mode.js).
-// One tick() is 20 ms of the robot's life: the wheels move the body, the sensors read the world, the mode decides.
+// The virtual Thymio: the arena (sim/arena.js) with the JavaScript twin of a program in it: the learning mode of the firmware
+// (sim/ann-mode.js) or the AI Lab program (sim/ai-mode.js). One tick() is 20 ms of the robot's life: the wheels move the
+// body, the sensors read the world, the program decides.
 import { Arena } from './arena.js';
 import { AnnMode, TICK_MS } from './ann-mode.js';
+import { AiMode } from './ai-mode.js';
 
 export class VirtualRobot {
   constructor(options = {}) {
@@ -11,13 +13,15 @@ export class VirtualRobot {
     this.buttons = [0, 0, 0, 0, 0];
     this.speed = [0, 0];              // what the wheels are told
     this.prox = new Array(7).fill(0);
+    this.ground = [900, 900];
     this.clock = 0;                   // ms of virtual time
     this.body = [0, 0, 0];
   }
 
-  // Start the mode: returns what it says at once. `init`: { step10, base10, base10r, forgetS, weights } as for AnnMode.
+  // Start a program: returns what it says at once. `init`: { step10, base10, base10r, forgetS, weights } as for AnnMode, or
+  // { program: 'ai', durationCs, pauseCs, maxSpeed, turnGain } for the AI Lab program.
   start(init = {}) {
-    this.mode = new AnnMode(init);
+    this.mode = init.program === 'ai' ? new AiMode(init) : new AnnMode(init);
     this.speed = [0, 0];
     this.queue = [];
     const out = this.mode.start();
@@ -41,10 +45,11 @@ export class VirtualRobot {
   tick() {
     this.arena.step(this.speed[0], this.speed[1], TICK_MS);
     this.prox = this.arena.sense();
+    this.ground = this.arena.senseGround();
     this.clock += TICK_MS;
     if (!this.mode) return null;
     const frame = this.queue.length ? this.queue.shift() : null;
-    const out = this.mode.tick({ prox: this.prox, buttons: this.buttons, frame });
+    const out = this.mode.tick({ prox: this.prox, ground: this.ground, buttons: this.buttons, frame });
     this.speed = out.speed;
     this.body = out.body;
     return out;

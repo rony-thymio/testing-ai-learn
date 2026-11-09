@@ -1,5 +1,8 @@
 # Thymio · Neurones
 
+> **AI Lab (this fork):** a second mode, AlphAI-style learning (supervised and reinforcement), is being added. See
+> [AI-LAB.md](AI-LAB.md) (in English).
+
 Une page web pour **regarder et régler l'apprentissage du Thymio 3**: le mode « réseau de neurones » du
 firmware (le mode blanc, `main/ann.c`), où le robot apprend à éviter les obstacles en se cognant. La page
 montre le réseau qui apprend, ses 16 poids qui bougent, l'activité des capteurs, des connexions et des

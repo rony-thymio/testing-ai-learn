@@ -31,4 +31,5 @@ export function hash32(text) {
 
 // "ann_1a2b3c4d": a file name of the robot is at most 30 bytes with its ".py".
 export const MODULE_PREFIX = 'ann_';
-export const moduleNameFor = (moduleText) => `${MODULE_PREFIX}${hash32(moduleText)}`;
+export const AI_MODULE_PREFIX = 'aim_';
+export const moduleNameFor = (moduleText, prefix = MODULE_PREFIX) => `${prefix}${hash32(moduleText)}`;

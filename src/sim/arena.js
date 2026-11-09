@@ -17,6 +17,26 @@ export function proxFromDistance(d) {
 
 const rad = (deg) => (deg * Math.PI) / 180;
 
+// The ground sensors: under the nose, a little either side of the middle (x to the right, y to the front, mm), and what they
+// read over a light floor and over a black line (a guess until it is measured on a robot: lower is darker).
+export const GROUND_SENSORS = [{ x: -8, y: 46 }, { x: 8, y: 46 }];
+export const GROUND_WHITE = 900;
+export const GROUND_BLACK = 120;
+
+// Whether a point is within `r` of a polyline.
+function nearPolyline(px, py, pts, r) {
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, ay] = pts[i];
+    const [bx, by] = pts[i + 1];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy || 1e-9;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    if (Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) <= r) return true;
+  }
+  return false;
+}
+
 // The first distance along a ray (origin ox, oy; unit direction dx, dy) to a segment, or Infinity.
 function raySegment(ox, oy, dx, dy, ax, ay, bx, by) {
   const ex = bx - ax;
@@ -64,6 +84,7 @@ export class Arena {
     this.rand = lcg(7);
     this.nextId = 1;
     this.obstacles = [];
+    this.lines = [];                                 // black lines on the floor: { points: [[x, y], ...], width } (mm)
     this.pose = { x: 0, y: 0, h: 0 };
     this.trail = [];
     this.bumped = 0;                                 // counts the contacts of the body, for the interface
@@ -184,6 +205,21 @@ export class Arena {
       y: y + sensor.y * f[1] - sensor.x * l[1],
       a: h + rad(sensor.angle),
     };
+  }
+
+  // The two ground sensors, under the front of the robot (GROUND_SENSORS): a light floor reads high, a black line low.
+  senseGround() {
+    const { x, y, h } = this.pose;
+    const f = [Math.cos(h), Math.sin(h)];
+    const l = [-Math.sin(h), Math.cos(h)];
+    return GROUND_SENSORS.map((g) => {
+      const px = x + g.y * f[0] - g.x * l[0];
+      const py = y + g.y * f[1] - g.x * l[1];
+      const black = this.lines.some((ln) => nearPolyline(px, py, ln.points, ln.width / 2));
+      const v = black ? GROUND_BLACK : GROUND_WHITE;
+      const noisy = this.noise ? v + (this.rand() - 0.5) * 2 * this.noise : v;
+      return Math.max(0, Math.round(noisy));
+    });
   }
 
   // The seven readings. Each sensor looks through a narrow cone: three rays, the outer ones count for less.

@@ -10,13 +10,16 @@ import Settings from './components/Settings.jsx';
 import Help from './components/Help.jsx';
 import QrShow from './components/QrShow.jsx';
 import QrScan from './components/QrScan.jsx';
+import AiLab, { AiActionSettings } from './components/AiLab.jsx';
+import { aiText } from './ai/i18n-ai.js';
+import { DEFAULT_ACTION_SETTINGS, DEFAULT_SELECTED, ACTIONS } from './ai/actions.js';
 import { BluetoothIcon, HelpIcon, QrIcon, ScanIcon, WarnIcon } from './icons.jsx';
 import { I18N, detectLang } from './i18n.js';
 import { Telemetry } from './store.js';
 import { SimBackend } from './sim/sim-backend.js';
 import { RobotBackend } from './robot/robot-backend.js';
 import { supportsBluetooth } from './api.js';
-import { CMD } from './protocol.js';
+import { CMD, AI_CMD } from './protocol.js';
 import { APP_LINKS, configChange, decodeConfig, encodeConfig } from './share.js';
 import { cleanName, formatWhen, randomName } from './names.js';
 import { useMedia, useSize } from './util.js';
@@ -24,11 +27,22 @@ import { useMedia, useSize } from './util.js';
 const load = (key, fallback) => { try { const v = localStorage.getItem(key); return v == null ? fallback : v; } catch { return fallback; } };
 const save = (key, value) => { try { localStorage.setItem(key, value); } catch { /* private mode */ } };
 
+const loadJson = (key, fallback) => { try { const v = JSON.parse(load(key, 'null')); return v ?? fallback; } catch { return fallback; } };
+const ACTION_IDS = new Set(ACTIONS.map((x) => x.id));
+
 const weightChange = (left, right) => ({ left: Object.fromEntries(left.map((v, i) => [i, v])), right: Object.fromEntries(right.map((v, i) => [i, v])) });
 
 export default function App() {
   const [lang, setLang] = useState(detectLang);
   const t = I18N[lang] || I18N.fr;
+  const a = aiText(lang);
+  // which program runs: 'ann' (Neurons: the robot learns by itself, the white mode of the firmware) or 'ai' (the AI Lab)
+  const [program, setProgramState] = useState(() => (load('learn.program', 'ann') === 'ai' ? 'ai' : 'ann'));
+  const programRef = useRef(program);
+  const [aiSelected, setAiSelected] = useState(() => { const v = loadJson('learn.ai.selected', DEFAULT_SELECTED); return Array.isArray(v) ? v.filter((id) => ACTION_IDS.has(id)) : DEFAULT_SELECTED; });
+  const [aiSettings, setAiSettings] = useState(() => ({ ...DEFAULT_ACTION_SETTINGS, ...loadJson('learn.ai.settings', {}) }));
+  const aiSettingsRef = useRef(aiSettings);
+  aiSettingsRef.current = aiSettings;
   const [theme, setTheme] = useState(() => load('learn.theme', 'auto'));
   const [tab, setTab] = useState('net');
   const [source, setSource] = useState('virtual');                  // 'virtual' | 'robot'
@@ -53,7 +67,7 @@ export default function App() {
   const sourceRef = useRef('virtual');
   const started = useRef(false);                                    // the mode was started on the current connection
   const connecting = useRef(false);
-  if (!sim.current) sim.current = new SimBackend((ev) => tele.current.push(ev));
+  if (!sim.current) { sim.current = new SimBackend((ev) => tele.current.push(ev)); sim.current.setProgram(programRef.current); }
 
   // (a handle for the console and the tests: window.__learn.sim.advance(ms) moves the virtual robot without waiting)
   useEffect(() => {
@@ -71,12 +85,13 @@ export default function App() {
 
   // ---- the virtual robot's clock ---------------------------------------------------------------------
   const initFromSettings = () => {
+    if (programRef.current === 'ai') return { ...aiSettingsRef.current };
     const p = tele.current.s.params;
     return { step: p.step, baseLeft: p.baseLeft, baseRight: p.baseRight, forget: p.forget };
   };
   useEffect(() => { sim.current.speed = simSpeed; }, [simSpeed]);
   useEffect(() => {
-    sim.current.start();
+    sim.current.start(initFromSettings());
     let raf = 0;
     let last = performance.now();
     const loop = (now) => {
@@ -126,6 +141,7 @@ export default function App() {
     setNotice('');
     if (!robot.current) {
       robot.current = new RobotBackend((ev) => onRobotEvent(ev), { onLog });
+      robot.current.setProgram(programRef.current);
       robot.current.attach();
     }
     sim.current.stop();
@@ -153,6 +169,26 @@ export default function App() {
     }
   }, []);
 
+  // Neurons or the AI Lab: the other program is started on the robot (or the virtual one) with what the person last chose for it.
+  const chooseProgram = useCallback((next) => {
+    if (next === programRef.current) return;
+    programRef.current = next;
+    setProgramState(next);
+    save('learn.program', next);
+    setNotice('');
+    tele.current.clear();
+    sim.current.setProgram(next);
+    robot.current?.setProgram(next);
+    if (sourceRef.current === 'robot') {
+      if (tele.current.s.link.status === 'connected') {
+        started.current = true;
+        robot.current.start(initFromSettings()).catch((err) => tele.current.push({ type: 'error', message: err?.message || String(err) }));
+      }
+    } else {
+      sim.current.start(initFromSettings());
+    }
+  }, []);
+
   // ---- what the person asks for ----------------------------------------------------------------------
   const send = useCallback(async (change) => {
     if (sourceRef.current === 'robot') {
@@ -163,6 +199,21 @@ export default function App() {
     } else {
       sim.current.apply(change);
     }
+  }, []);
+
+  // the AI Lab: an action to carry out now, the settings of the actions, the actions the robot can use
+  const act = useCallback((id) => {
+    send({ action: id }).catch(() => setNotice(aiText(lang).actions.failed));
+  }, [send, lang]);
+  const stopAction = useCallback(() => { send({ command: AI_CMD.STOP }).catch(() => {}); }, [send]);
+  const changeAiSettings = useCallback((change) => {
+    setAiSettings((prev) => { const next = { ...prev, ...change }; save('learn.ai.settings', JSON.stringify(next)); return next; });
+    send(change).catch(() => {});
+  }, [send]);
+  const chooseActions = useCallback((ids) => {
+    const next = ACTIONS.map((x) => x.id).filter((id) => ids.includes(id));
+    setAiSelected(next);
+    save('learn.ai.selected', JSON.stringify(next));
   }, []);
 
   const setWeight = useCallback((sensor, wheel, w) => send({ [wheel === 0 ? 'left' : 'right']: { [sensor]: w } }), [send]);
@@ -197,15 +248,15 @@ export default function App() {
   const live = source === 'robot';
   const online = snap.running && (!live || snap.link.status === 'connected');
   const keyState = useRef({});
-  keyState.current = { snap, online, send };
+  keyState.current = { snap, online, send, ai: program === 'ai' };
   useEffect(() => {
     const on = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || e.target?.isContentEditable) return;
-      const { snap: s, online: ok, send: go } = keyState.current;
+      const { snap: s, online: ok, send: go, ai } = keyState.current;
       if (e.key === 'd' || e.key === 'D') { setSettings((v) => !v); return; }
-      if (!ok) return;
+      if (!ok || ai) return;
       if (e.key === ' ') { e.preventDefault(); go({ command: s.state === 'pause' ? CMD.RESUME : CMD.PAUSE }); }
       else if (e.key === 'g' || e.key === 'G') go({ command: s.learning ? CMD.FREEZE : CMD.LEARN });
       else if (e.key === '0') go({ command: CMD.RESET });
@@ -221,12 +272,17 @@ export default function App() {
 
   const link = snap.link;
   const lost = live && (link.status === 'disconnected' || link.status === 'reconnect') && !connecting.current;
-  const starting = live && link.status === 'connected' && !snap.running && !snap.error && started.current && snap.t === 0;
-  const modeEnded = live && link.status === 'connected' && !snap.running && snap.t > 0;
+  // (starting: the program is being installed and started, which takes a few seconds the first time; ended: it said hello, then stopped)
+  const starting = live && link.status === 'connected' && !snap.running && !snap.error && started.current && !snap.greeted;
+  const modeEnded = live && link.status === 'connected' && !snap.running && snap.greeted;
   const enabled = online;
   const brainNow = snap.weights;
-  const tabs = live ? ['net', 'settings', 'curves'] : ['net', 'settings', 'curves', 'arena'];       // the real robot has no arena
-  const shownTab = tabs.includes(tab) ? tab : 'net';
+  const isAi = program === 'ai';
+  const tabs = isAi
+    ? (live ? ['lab', 'actions'] : ['lab', 'actions', 'arena'])
+    : (live ? ['net', 'settings', 'curves'] : ['net', 'settings', 'curves', 'arena']);       // the real robot has no arena
+  const shownTab = tabs.includes(tab) ? tab : tabs[0];
+  const tabName = (id) => (isAi ? a.tabs[id] : t.tabs[id]);
 
   return (
     <div className={`app tab-${shownTab}`}>
@@ -238,10 +294,14 @@ export default function App() {
             </button>
             <div>
               <h1>{t.app.title}</h1>
-              <p>{t.app.subtitle}</p>
+              <p>{program === 'ai' ? a.appSubtitle : t.app.subtitle}</p>
             </div>
           </div>
           <div className="top-mid">
+            <div className="seg program" role="group" aria-label={a.program.label}>
+              <button type="button" className={!isAi ? 'on' : ''} aria-pressed={!isAi} title={a.program.annHint} onClick={() => chooseProgram('ann')}>{a.program.ann}</button>
+              <button type="button" className={isAi ? 'on' : ''} aria-pressed={isAi} title={a.program.aiHint} onClick={() => chooseProgram('ai')}>{a.program.ai}</button>
+            </div>
             <div className="seg source" role="group" aria-label={t.head.source}>
               <button type="button" className={!live ? 'on' : ''} aria-pressed={!live} onClick={() => live && disconnect()}>{t.head.virtual}</button>
               <button type="button" className={live ? 'on' : ''} aria-pressed={live} onClick={() => !live && connect()}>{t.head.real}</button>
@@ -251,19 +311,19 @@ export default function App() {
           <div className="top-end">
             {live && link.status === 'connected' && <button type="button" className="btn small" onClick={disconnect}>{t.head.disconnect}</button>}
             {!live && bluetooth && <button type="button" className="btn small hide-narrow" onClick={connect}><BluetoothIcon size={16} />{t.head.connect}</button>}
-            <button type="button" className="icon-btn bar-btn" onClick={showQr} aria-label={t.qr.show} title={t.qr.show}><QrIcon /></button>
-            <button type="button" className="icon-btn bar-btn scan" onClick={scanQr} disabled={!enabled} aria-label={t.qr.scan} title={t.qr.scan}><ScanIcon /></button>
+            {!isAi && <button type="button" className="icon-btn bar-btn" onClick={showQr} aria-label={t.qr.show} title={t.qr.show}><QrIcon /></button>}
+            {!isAi && <button type="button" className="icon-btn bar-btn scan" onClick={scanQr} disabled={!enabled} aria-label={t.qr.scan} title={t.qr.scan}><ScanIcon /></button>}
             <button type="button" className="icon-btn bar-btn" onClick={() => setHelp(true)} aria-label={t.head.help} title={t.head.help}><HelpIcon /></button>
           </div>
         </header>
-        {wide && <ControlBar t={t} state={snap.state} learning={snap.learning} params={snap.params} enabled={enabled} live={snap.live} onChange={send} onPreset={applyPreset} />}
+        {wide && !isAi && <ControlBar t={t} state={snap.state} learning={snap.learning} params={snap.params} enabled={enabled} live={snap.live} onChange={send} onPreset={applyPreset} />}
       </div>
 
       {(lost || modeEnded || notice || snap.error || starting || snap.live.giveUp) && (
         <div className="banner" role="alert">
           <WarnIcon size={18} />
           <span>
-            {lost ? t.head.lost : modeEnded ? t.head.ended : starting ? t.head.starting : snap.live.giveUp ? t.ctl.gaveUp : notice || snap.error}
+            {lost ? t.head.lost : modeEnded ? (isAi ? a.ended : t.head.ended) : starting ? (isAi ? a.starting : t.head.starting) : snap.live.giveUp ? t.ctl.gaveUp : notice || snap.error}
           </span>
           {lost && <button type="button" className="btn small" onClick={connect}>{t.head.retry}</button>}
           {(modeEnded || snap.live.giveUp) && <button type="button" className="btn small" onClick={restartMode}>{t.head.restart}</button>}
@@ -272,6 +332,17 @@ export default function App() {
       )}
 
       <main>
+        {isAi ? (
+          <div className="col main">
+            <div data-tab="lab">
+              <AiLab a={a} snap={snap} enabled={enabled} selected={aiSelected} onAct={act} onStop={stopAction} />
+            </div>
+            <div data-tab="actions">
+              <AiActionSettings a={a} selected={aiSelected} onSelect={chooseActions} settings={aiSettings} onSettings={changeAiSettings} enabled={enabled} foldable={wide} />
+            </div>
+            {!live && <div data-tab="arena"><Arena t={t} sim={sim.current} speed={simSpeed} onSpeed={setSimSpeed} hit={null} foldable={wide} /></div>}
+          </div>
+        ) : (
         <div className="col main">
           <section className="card net-card" data-tab="net" aria-label={t.net.title}>
             <header className="card-head net-head">
@@ -307,12 +378,13 @@ export default function App() {
 
           <div data-tab="curves"><Timeline t={t} hist={snap.hist} now={snap.t} t0={snap.t0} foldable={wide} /></div>
         </div>
+        )}
 
       </main>
 
       <nav className="tabbar" aria-label="Sections">
         {tabs.map((id) => (
-          <button key={id} type="button" className={shownTab === id ? 'on' : ''} aria-pressed={shownTab === id} onClick={() => setTab(id)}>{t.tabs[id]}</button>
+          <button key={id} type="button" className={shownTab === id ? 'on' : ''} aria-pressed={shownTab === id} onClick={() => setTab(id)}>{tabName(id)}</button>
         ))}
       </nav>
 

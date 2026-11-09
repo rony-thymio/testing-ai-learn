@@ -2,6 +2,7 @@
 // the weights, the settings, and the history that the charts draw. Plain JavaScript with no React: React reads it with
 // useSyncExternalStore (see useTelemetry in App.jsx) and Node can test it.
 import { DEFAULT_BASE, DEFAULT_FORGET, DEFAULT_STEP, emptyWeights } from './spec.js';
+import { DEFAULT_ACTION_SETTINGS } from './ai/actions.js';
 
 export const KEEP_READINGS = 9000;        // 15 minutes of readings (10 a second)
 export const KEEP_WEIGHTS = 3000;
@@ -15,6 +16,7 @@ function fresh() {
     version: 0,
     link: { status: 'idle', device: '', firmware: null, error: '' },
     running: false,                       // the mode has said hello and not goodbye
+    greeted: false,                       // the mode has said hello since this history began (it is starting until then)
     state: 'drive',
     learning: true,                       // the robot learns from its hits (false: frozen, and it stays so through a pause)
     prox: zeros(7),
@@ -35,6 +37,8 @@ function fresh() {
     battery: 0,
     error: '',
     hist: { n: [], w: [], events: [] },
+    // the AI Lab program (src/py/ai_mode.py): what it is doing, its ground sensors, its settings, the last action
+    ai: { phase: 'idle', action: -1, ground: [-1, -1], settings: { ...DEFAULT_ACTION_SETTINGS }, count: 0, lastGo: null, lastDone: null },
   };
 }
 
@@ -52,9 +56,11 @@ export class Telemetry {
   clear() {
     const link = this.s.link;
     const params = this.s.params;
+    const settings = this.s.ai.settings;
     this.s = fresh();
     this.s.link = link;
     this.s.params = params;
+    this.s.ai.settings = settings;
     this.publish();
   }
 
@@ -72,7 +78,7 @@ export class Telemetry {
         s.link = { ...s.link, status: ev.status, device: ev.device ?? s.link.device, firmware: ev.firmware ?? s.link.firmware, error: ev.error ?? (ev.status === 'connected' ? '' : s.link.error) };
         if (ev.status === 'disconnected' || ev.status === 'reconnect') s.running = false;
         break;
-      case 'hello': s.running = true; s.live = { ...s.live, failures: 0, giveUp: false }; break;
+      case 'hello': s.running = true; s.greeted = true; s.live = { ...s.live, failures: 0, giveUp: false }; break;
       case 'battery': s.battery = ev.volts; break;
       case 'state': s.state = ev.state; break;
       case 'n':
@@ -117,6 +123,14 @@ export class Telemetry {
         s.learnt = ev.count;
         this.event({ t: ev.t ?? s.t, kind: 'forget' });
         break;
+      case 'a':
+        s.prox = ev.prox;
+        s.motors = ev.motors;
+        s.ai = { ...s.ai, phase: ev.phase, action: ev.action, ground: ev.ground };
+        break;
+      case 'go': s.ai = { ...s.ai, count: ev.count, action: ev.action, phase: 'act', lastGo: { t: ev.t ?? s.t, action: ev.action, count: ev.count } }; break;
+      case 'done': s.ai = { ...s.ai, phase: s.ai.phase === 'act' || s.ai.phase === 'rest' ? 'idle' : s.ai.phase, lastDone: { t: ev.t ?? s.t, action: ev.action, count: ev.count } }; break;
+      case 's': s.ai = { ...s.ai, settings: { duration: ev.duration, pause: ev.pause, maxSpeed: ev.maxSpeed, turnGain: ev.turnGain } }; break;
       case 'bye': case 'exit': case 'script-ended': s.running = false; break;
       case 'error': s.error = ev.message; break;
       case 'live-ok': s.live = { ...s.live, failures: 0, lastMs: ev.ms }; break;

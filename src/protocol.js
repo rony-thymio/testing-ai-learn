@@ -1,6 +1,7 @@
 // The words between the interface and the mode that runs on the robot (src/py/ann_mode.py).
 // Pure helpers, no import of the browser: Node can test them.
 import { STATES } from './spec.js';
+import { PHASES } from './ai/actions.js';
 
 // ---- robot -> interface: "@@word ..." lines on stdout -------------------------------------------
 // stdout arrives in BLE notifications cut anywhere: rebuild complete lines. A line ends with a newline,
@@ -58,6 +59,22 @@ export function parseRobotLine(line) {
     case 'learn': return { type: 'learn', count: Number(a[0]) || 0 };
     case 'forget': return { type: 'forget', count: Number(a[0]) || 0 };
     case 'ack': return { type: 'ack', msg: Number(a[0]) };
+    // the AI Lab program (src/py/ai_mode.py)
+    case 'a': {
+      const v = ints(a, 13);
+      if (v.length < 13 || !finite(v)) return null;
+      return { type: 'a', phase: PHASES[v[0]] || 'idle', action: v[1], prox: v.slice(2, 9), ground: v.slice(9, 11), motors: [v[11], v[12]] };
+    }
+    case 'go': case 'done': {
+      const v = ints(a, 2);
+      if (v.length < 2 || !finite(v)) return null;
+      return { type: word, count: v[0], action: v[1] };
+    }
+    case 's': {
+      const v = ints(a, 4);
+      if (v.length < 4 || !finite(v)) return null;
+      return { type: 's', duration: v[0] / 100, pause: v[1] / 100, maxSpeed: v[2], turnGain: v[3] };
+    }
     case 'exit': return { type: 'exit' };
     case 'bye': return { type: 'bye' };
     default: return null;
@@ -176,4 +193,27 @@ export function itemsFor(change) {
   const out = [];
   for (let i = 0; i < items.length; i += MAX_ITEMS) out.push(items.slice(i, i + MAX_ITEMS));
   return out;
+}
+
+// ---- the AI Lab program (src/py/ai_mode.py): the same frames, other keys ---------------------------------------
+// 20 an action to carry out (its number, see src/ai/actions.js), 21 the duration of an action and 22 the pause after it
+// (hundredths of a second), 23 the max speed, 24 the colour of the body (r, g, b: 4 bits each; -1: the program's own),
+// 25 the correction of the turning time (percent), 19 a command (AI_CMD).
+export const AI_KEY = { COMMAND: 19, ACTION: 20, DURATION: 21, PAUSE: 22, MAX_SPEED: 23, LIGHT: 24, TURN_GAIN: 25 };
+export const AI_CMD = { QUIT: 6, STOP: 8 };
+const lim = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
+export const lightValue = (rgb) => (rgb == null ? -1 : (lim(rgb[0], 0, 15) << 8) | (lim(rgb[1], 0, 15) << 4) | lim(rgb[2], 0, 15));
+
+// `change`: any of { duration, pause (seconds), maxSpeed, turnGain, light: [r, g, b] | null, command, action }. The settings
+// come first and the action last: an action carries out the settings sent with it.
+export function aiItemsFor(change) {
+  const items = [];
+  if (change.duration != null) items.push([AI_KEY.DURATION, lim(change.duration * 100, 1, 500)]);
+  if (change.pause != null) items.push([AI_KEY.PAUSE, lim(change.pause * 100, 0, 500)]);
+  if (change.maxSpeed != null) items.push([AI_KEY.MAX_SPEED, lim(change.maxSpeed, 0, 500)]);
+  if (change.turnGain != null) items.push([AI_KEY.TURN_GAIN, lim(change.turnGain, 10, 400)]);
+  if (change.light !== undefined) items.push([AI_KEY.LIGHT, lightValue(change.light)]);
+  if (change.command != null) items.push([AI_KEY.COMMAND, change.command]);
+  if (change.action != null) items.push([AI_KEY.ACTION, change.action]);
+  return items.length ? [items] : [];
 }
