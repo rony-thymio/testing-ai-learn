@@ -33,15 +33,16 @@ function loadBrain(selected) {
 // `snapRef`: the latest telemetry (src/store.js); `send(change)`: tell the program (an action, a command, settings), resolves or
 // rejects; `selected`: the actions the network chooses from; `actionMs`: how long the longest action and its pause last (for
 // STUCK_MS); `enabled`: the program runs; `active`: the AI Lab is on screen (no learning in the background otherwise).
-export default function useAiLab({ snapRef, send, selected, actionMs, enabled, active = true }) {
+export default function useAiLab({ snapRef, send, selected, actionMs, enabled, active = true, log = () => {} }) {
   const brainRef = useRef(null);
   if (!brainRef.current) brainRef.current = loadBrain(selected);
   const brain = brainRef.current;
   const [, setVersion] = useState(0);
   const [learn, setLearn] = useState(true);
   const [auto, setAuto] = useState(false);
+  const [decision, setDecision] = useState(null);       // the last action the network chose: { id, p, at }
   const live = useRef({});
-  live.current = { learn, auto, enabled, send, actionMs, active };
+  live.current = { learn, auto, enabled, send, actionMs, active, log };
 
   // the robot gone (or the program stopped): it no longer drives itself
   useEffect(() => { if (!enabled) setAuto(false); }, [enabled]);
@@ -78,7 +79,14 @@ export default function useAiLab({ snapRef, send, selected, actionMs, enabled, a
   // What the network chooses now, from the latest readings (those sent with "done" are the latest when the robot has just stopped).
   const choose = useCallback(() => {
     const s = snapRef.current;
-    return brain.best(s.prox, s.ai.ground);
+    const id = brain.best(s.prox, s.ai.ground);
+    if (id >= 0) {
+      const p = brain.probabilities(s.prox, s.ai.ground);
+      setDecision({ id, p: p[brain.actions.indexOf(id)], at: Date.now() });
+      // in the journal of the link: what the network saw and what it chose (to understand a robot that does something odd)
+      live.current.log('info', `AI: inputs ${brain.x(s.prox, s.ai.ground).map((v) => v.toFixed(2)).join(' ')} -> ${brain.actions.map((a, k) => `${a}:${Math.round(p[k] * 100)}%`).join(' ')} -> action ${id}`);
+    }
+    return id;
   }, [brain, snapRef]);
 
   // the robot drives itself: as soon as an action is done, the next one
@@ -108,6 +116,7 @@ export default function useAiLab({ snapRef, send, selected, actionMs, enabled, a
     const s = snapRef.current;
     if (live.current.learn && selected.includes(id)) {
       brain.addExample(s.prox, s.ai.ground, id);
+      live.current.log('info', `AI: example ${brain.examples.length}: inputs ${brain.x(s.prox, s.ai.ground).map((v) => v.toFixed(2)).join(' ')} -> action ${id}`);
       changed();
     }
     return doAction(id);
@@ -121,11 +130,14 @@ export default function useAiLab({ snapRef, send, selected, actionMs, enabled, a
   const forgetLast = useCallback(() => { if (brain.forgetLast()) changed(); }, [brain, changed]);
   const reset = useCallback(() => { brain.reset(); changed(); }, [brain, changed]);
   const configure = useCallback((c) => { brain.configure(c); changed(); }, [brain, changed]);
+  // As in AlphAI, learning pauses when the robot drives itself (Learn can be switched on again by hand).
   const toggleAuto = useCallback(() => {
     const was = live.current.auto;
     setAuto(!was);
+    live.current.log('info', `AI: autonomous ${was ? 'off' : 'on'} (${brain.usable().length} examples, actions ${brain.actions.join(' ')})`);
+    if (!was) setLearn(false);
     if (was) { waiting.current = null; send({ command: AI_CMD.STOP }).catch(() => {}); }        // the robot stops at once
   }, [send]);
 
-  return { brain, learn, setLearn, auto, setAuto, toggleAuto, teach, step, forgetLast, reset, configure };
+  return { brain, learn, setLearn, auto, setAuto, toggleAuto, teach, step, forgetLast, reset, configure, decision };
 }

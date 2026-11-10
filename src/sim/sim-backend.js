@@ -54,6 +54,7 @@ export class SimBackend {
 
   // The messages to the mode go through the frames, as with the real robot (one frame at each tick).
   apply(change) {
+    if (this.program === 'ai' && change.action != null && change.seq == null) { this.aiSeq = ((this.aiSeq || 0) % 63) + 1; change = { ...change, seq: this.aiSeq }; }
     for (const items of (this.program === 'ai' ? aiItemsFor : itemsFor)(change)) {
       this.msg = (this.msg % 15) + 1;
       this.robot.pushFrames(encodeMessage(items, this.msg));

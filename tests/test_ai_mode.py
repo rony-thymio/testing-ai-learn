@@ -19,7 +19,7 @@ from test_ann_mode import encode  # noqa: E402
 
 SOURCE = open(os.path.join(HERE, "..", "src", "py", "ai_mode.py")).read()
 
-KEY_CMD, KEY_ACTION, KEY_DURATION, KEY_PAUSE, KEY_MAX_SPEED, KEY_LIGHT, KEY_TURN_GAIN = 19, 20, 21, 22, 23, 24, 25
+KEY_CMD, KEY_ACTION, KEY_DURATION, KEY_PAUSE, KEY_MAX_SPEED, KEY_LIGHT, KEY_TURN_GAIN, KEY_ACTION_N = 19, 20, 21, 22, 23, 24, 25, 26
 CMD_QUIT, CMD_STOP = 6, 8
 FORWARD, BACKWARD, STOP, TURN_90_LEFT, TURN_90_RIGHT, RED, GREEN, BLUE = 1, 2, 0, 17, 18, 24, 25, 26
 
@@ -152,6 +152,19 @@ class Actions(unittest.TestCase):
         done = words(r, "done")[0][0]
         self.assertEqual([s for t, *s in r.speeds if t > done + 1], [[0, 0]] * len([1 for t, *s in r.speeds if t > done + 1]))
 
+    def test_a_message_sent_again_does_not_repeat_the_action(self):
+        r = VirtualRobot()
+        # the same action (number 7) twice, as the page sends it when the answer is late; then a new number
+        send_at(r, {5: [(KEY_ACTION_N, 7 * 32 + FORWARD)], 30: [(KEY_ACTION_N, 7 * 32 + FORWARD)], 55: [(KEY_ACTION_N, 8 * 32 + BACKWARD)]})
+        run(r, 90)
+        self.assertEqual([v for _, v in words(r, "go")], [[1, FORWARD], [2, BACKWARD]])
+        self.assertEqual(len(words(r, "ack")), 3, "each message is answered")
+        # without a number, as before: carried out each time
+        r = VirtualRobot()
+        send_at(r, {5: [(KEY_ACTION, FORWARD)], 30: [(KEY_ACTION, FORWARD)]})
+        run(r, 60)
+        self.assertEqual(len(words(r, "go")), 2)
+
     def test_a_new_action_replaces_the_one_that_runs(self):
         r = VirtualRobot()
         send_at(r, {5: [(KEY_DURATION, 100), (KEY_ACTION, FORWARD)], 15: [(KEY_ACTION, BACKWARD)]})
@@ -249,7 +262,10 @@ def golden_scenario(seed, ticks=1500):
             items.append((KEY_LIGHT, rnd.choice([-1, 0x0F0, 0xF00, 0x123])))
         if rnd.random() < 0.1:
             items.append((KEY_CMD, CMD_STOP))
-        items.append((KEY_ACTION, rnd.randint(0, 27)))
+        if rnd.random() < 0.6:
+            items.append((KEY_ACTION_N, rnd.randint(1, 3) * 32 + rnd.randint(0, 27)))
+        else:
+            items.append((KEY_ACTION, rnd.randint(0, 27)))
         schedule[t] = items
         t += rnd.randint(4, 60)
     r = VirtualRobot()

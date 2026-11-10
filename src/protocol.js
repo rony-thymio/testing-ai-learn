@@ -207,13 +207,15 @@ export function itemsFor(change) {
 // 20 an action to carry out (its number, see src/ai/actions.js), 21 the duration of an action and 22 the pause after it
 // (hundredths of a second), 23 the max speed, 24 the colour of the body (r, g, b: 4 bits each; -1: the program's own),
 // 25 the correction of the turning time (percent), 19 a command (AI_CMD).
-export const AI_KEY = { COMMAND: 19, ACTION: 20, DURATION: 21, PAUSE: 22, MAX_SPEED: 23, LIGHT: 24, TURN_GAIN: 25 };
+export const AI_KEY = { COMMAND: 19, ACTION: 20, DURATION: 21, PAUSE: 22, MAX_SPEED: 23, LIGHT: 24, TURN_GAIN: 25, ACTION_N: 26 };
 export const AI_CMD = { QUIT: 6, STOP: 8 };
 const lim = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
 export const lightValue = (rgb) => (rgb == null ? -1 : (lim(rgb[0], 0, 15) << 8) | (lim(rgb[1], 0, 15) << 4) | lim(rgb[2], 0, 15));
 
-// `change`: any of { duration, pause (seconds), maxSpeed, turnGain, light: [r, g, b] | null, command, action }. The settings
-// come first and the action last: an action carries out the settings sent with it.
+// `change`: any of { duration, pause (seconds), maxSpeed, turnGain, light: [r, g, b] | null, command, action, seq }. The settings
+// come first and the action last: an action carries out the settings sent with it. `seq` (1..63) numbers the action, in the
+// same item (seq * 32 + action, so that it still fits one frame): the program does not carry out the same number twice in a
+// row, so a message sent again (its answer was late) does not repeat the action.
 export function aiItemsFor(change) {
   const items = [];
   if (change.duration != null) items.push([AI_KEY.DURATION, lim(change.duration * 100, 1, 500)]);
@@ -222,6 +224,9 @@ export function aiItemsFor(change) {
   if (change.turnGain != null) items.push([AI_KEY.TURN_GAIN, lim(change.turnGain, 10, 400)]);
   if (change.light !== undefined) items.push([AI_KEY.LIGHT, lightValue(change.light)]);
   if (change.command != null) items.push([AI_KEY.COMMAND, change.command]);
-  if (change.action != null) items.push([AI_KEY.ACTION, change.action]);
+  if (change.action != null) {
+    if (change.seq != null) items.push([AI_KEY.ACTION_N, ((change.seq & 63) << 5) | (change.action & 31)]);
+    else items.push([AI_KEY.ACTION, change.action]);
+  }
   return items.length ? [items] : [];
 }

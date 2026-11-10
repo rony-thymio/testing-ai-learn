@@ -502,6 +502,8 @@ export class RobotBackendCore {
   // in order (an action is never merged with another). Resolves with the time it took to be acknowledged, or rejects.
   aiSend(change) {
     if (!this.connected || !this.modeRunning) return Promise.reject(new Error('the program is not running'));
+    // each action has a number of its own, kept when the message is sent again (see AI_KEY.ACTION_N)
+    if (change.action != null && change.seq == null) { this.aiSeq = ((this.aiSeq || 0) % 63) + 1; change = { ...change, seq: this.aiSeq }; }
     return this.enqueue('ai message', async () => {
       let ms = 0;
       for (const items of aiItemsFor(change)) {

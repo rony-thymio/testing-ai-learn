@@ -14,6 +14,7 @@ const en = {
     autonomous: 'autonomous',
     data: 'Training data: {n}.',
     empty: 'Training data: none.',
+    decision: 'The network chose: {action} ({p} %)',
   },
   phase: { idle: 'Waiting', act: 'Doing: {action}', rest: 'Short pause', offline: 'Not running' },
   bar: {

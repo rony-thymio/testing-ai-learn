@@ -620,6 +620,7 @@ a.app-link { color: inherit; text-decoration: underline; overflow-wrap: anywhere
 .ai-card { padding-top: 14px; }
 .ai-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .ai-headline { margin: 0; font-size: 16px; font-weight: 700; }
+.ai-decision { margin: -4px 0 10px; color: var(--ink-2); font-weight: 600; }
 .ai-status { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border-strong); font-weight: 600; font-size: 13px; background: var(--surface-2); white-space: nowrap; }
 .ai-status i { width: 9px; height: 9px; border-radius: 50%; background: var(--axis); flex: none; }
 .ai-status.busy i { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent); }

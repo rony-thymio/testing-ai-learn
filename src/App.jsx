@@ -252,7 +252,7 @@ export default function App() {
     const longest = Math.max(d, ...aiSelected.map((id) => plan(id, d, aiSettings.maxSpeed, aiSettings.turnGain).ms));
     return longest + Math.round(aiSettings.pause * 1000);
   }, [aiSettings, aiSelected]);
-  const lab = useAiLab({ snapRef, send, selected: aiSelected, actionMs, enabled: online && program === 'ai', active: program === 'ai' });
+  const lab = useAiLab({ snapRef, send, selected: aiSelected, actionMs, enabled: online && program === 'ai', active: program === 'ai', log: onLog });
 
   const keyState = useRef({});
   keyState.current = { snap, online, send, ai: program === 'ai', lab };

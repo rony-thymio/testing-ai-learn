@@ -68,6 +68,8 @@ test('the messages to the program: settings first, the action last, in the units
   assert.deepEqual(aiItemsFor({ light: null }), [[[AI_KEY.LIGHT, -1]]]);
   assert.deepEqual(aiItemsFor({ command: AI_CMD.STOP }), [[[AI_KEY.COMMAND, AI_CMD.STOP]]]);
   assert.deepEqual(aiItemsFor({}), []);
+  assert.deepEqual(aiItemsFor({ action: 3, seq: 12 }), [[[AI_KEY.ACTION_N, 12 * 32 + 3]]]);
+  assert.equal(encodeMessage(aiItemsFor({ action: 26, seq: 63, maxSpeed: 150 })[0].slice(-1), 1).length, 1, 'an action with its number fits one frame');
   assert.equal(lightValue([16, 3, -2]), 0xf30);
   // they go through the frames whole, negative values too
   const rx = new FrameReceiver();

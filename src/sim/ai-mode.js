@@ -9,7 +9,7 @@ const REPORT_TICKS = 5;
 const HEARTBEAT_TICKS = 150;
 const SPEED_LIMIT = 500;
 const COAST_MS = 400;
-const KEY = { COMMAND: 19, ACTION: 20, DURATION: 21, PAUSE: 22, MAX_SPEED: 23, LIGHT: 24, TURN_GAIN: 25 };
+const KEY = { COMMAND: 19, ACTION: 20, DURATION: 21, PAUSE: 22, MAX_SPEED: 23, LIGHT: 24, TURN_GAIN: 25, ACTION_N: 26 };
 const CMD_QUIT = 6;
 const CMD_STOP = 8;
 const P = { IDLE: 0, ACT: 1, REST: 2 };
@@ -38,6 +38,7 @@ export class AiMode {
     this.beat = 0;
     this.quit = false;
     this.rx = new FrameReceiver();
+    this.lastSeq = -1;
     this.centre = 0;
     this.lines = [];
     this.body = [0, 0, 0];
@@ -117,7 +118,12 @@ export class AiMode {
 
   // ---- the page's messages ----------------------------------------------------------------------
   item(key, v) {
-    if (key === KEY.ACTION) this.startAction(v);
+    if (key === KEY.ACTION_N) {
+      const n = v >> 5;
+      if (n === this.lastSeq) return;                                     // already carried out: the message came again
+      this.lastSeq = n;
+      this.startAction(v & 31);
+    } else if (key === KEY.ACTION) this.startAction(v);
     else if (key === KEY.DURATION) this.durationMs = clamp(v, 1, 500) * 10;
     else if (key === KEY.PAUSE) this.pauseMs = clamp(v, 0, 500) * 10;
     else if (key === KEY.MAX_SPEED) this.maxSpeed = clamp(v, 0, SPEED_LIMIT);

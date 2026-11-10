@@ -41,6 +41,11 @@ export default function AiLab({ a, snap, enabled, lab, speed, onSpeed }) {
         <h2 className="ai-headline" aria-live="polite">{headline}</h2>
         <div className={`ai-status ${acting ? 'busy' : ''}`} role="status"><i aria-hidden="true" />{status}</div>
       </header>
+      {lab.decision && (lab.auto || Date.now() - lab.decision.at < 5000) && (
+        <p className="ai-decision small" aria-live="polite">
+          {fmt(a.headline.decision, { action: a.action[ACTIONS[lab.decision.id].name], p: Math.round(lab.decision.p * 100) })}
+        </p>
+      )}
 
       <AiControlBar a={a} lab={lab} enabled={enabled} hasExamples={brain.examples.length > 0} hasActions={actions.length > 0} speed={speed} onSpeed={onSpeed} />
 

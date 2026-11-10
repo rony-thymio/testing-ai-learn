@@ -94,6 +94,8 @@ KEY_PAUSE = 22
 KEY_MAX_SPEED = 23
 KEY_LIGHT = 24
 KEY_TURN_GAIN = 25
+KEY_ACTION_N = 26           # an action with its number (number * 32 + action, the number 1..63): an action whose number was
+                            # just carried out is not carried out again (the page sends a message again when its answer is late)
 CMD_QUIT = 6
 CMD_STOP = 8
 
@@ -174,6 +176,7 @@ class Runner:
         self.rx_msg = -1
         self.rx_got = {}
         self.rx_last = -1
+        self.last_seq = -1          # the number of the last action carried out
         self.centre = 0
 
     # ---- actions --------------------------------------------------------------------------------
@@ -242,7 +245,13 @@ class Runner:
 
     # ---- the page's messages -----------------------------------------------------------------------
     def item(self, key, v):
-        if key == KEY_ACTION:
+        if key == KEY_ACTION_N:
+            n = v >> 5
+            if n == self.last_seq:
+                return              # already carried out: the message came again
+            self.last_seq = n
+            self.start(v & 31)
+        elif key == KEY_ACTION:
             self.start(v)
         elif key == KEY_DURATION:
             self.duration_ms = clamp(v, 1, 500) * 10
