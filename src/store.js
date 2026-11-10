@@ -129,7 +129,10 @@ export class Telemetry {
         s.ai = { ...s.ai, phase: ev.phase, action: ev.action, ground: ev.ground };
         break;
       case 'go': s.ai = { ...s.ai, count: ev.count, action: ev.action, phase: 'act', lastGo: { t: ev.t ?? s.t, action: ev.action, count: ev.count } }; break;
-      case 'done': s.ai = { ...s.ai, phase: s.ai.phase === 'act' || s.ai.phase === 'rest' ? 'idle' : s.ai.phase, lastDone: { t: ev.t ?? s.t, action: ev.action, count: ev.count } }; break;
+      case 'done':
+        if (ev.prox) s.prox = ev.prox;
+        s.ai = { ...s.ai, phase: s.ai.phase === 'act' || s.ai.phase === 'rest' ? 'idle' : s.ai.phase, ground: ev.ground || s.ai.ground, lastDone: { t: ev.t ?? s.t, action: ev.action, count: ev.count } };
+        break;
       case 's': s.ai = { ...s.ai, settings: { duration: ev.duration, pause: ev.pause, maxSpeed: ev.maxSpeed, turnGain: ev.turnGain } }; break;
       case 'bye': case 'exit': case 'script-ended': s.running = false; break;
       case 'error': s.error = ev.message; break;

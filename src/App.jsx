@@ -10,16 +10,17 @@ import Settings from './components/Settings.jsx';
 import Help from './components/Help.jsx';
 import QrShow from './components/QrShow.jsx';
 import QrScan from './components/QrScan.jsx';
-import AiLab, { AiActionSettings } from './components/AiLab.jsx';
+import AiLab, { AiActionSettings, AiBrainSettings, AiSensorSettings } from './components/AiLab.jsx';
 import { aiText } from './ai/i18n-ai.js';
-import { DEFAULT_ACTION_SETTINGS, DEFAULT_SELECTED, ACTIONS } from './ai/actions.js';
+import { DEFAULT_ACTION_SETTINGS, DEFAULT_SELECTED, ACTIONS, plan } from './ai/actions.js';
+import useAiLab from './ai/useAiLab.js';
 import { BluetoothIcon, HelpIcon, QrIcon, ScanIcon, WarnIcon } from './icons.jsx';
 import { I18N, detectLang } from './i18n.js';
 import { Telemetry } from './store.js';
 import { SimBackend } from './sim/sim-backend.js';
 import { RobotBackend } from './robot/robot-backend.js';
 import { supportsBluetooth } from './api.js';
-import { CMD, AI_CMD } from './protocol.js';
+import { CMD } from './protocol.js';
 import { APP_LINKS, configChange, decodeConfig, encodeConfig } from './share.js';
 import { cleanName, formatWhen, randomName } from './names.js';
 import { useMedia, useSize } from './util.js';
@@ -201,11 +202,7 @@ export default function App() {
     }
   }, []);
 
-  // the AI Lab: an action to carry out now, the settings of the actions, the actions the robot can use
-  const act = useCallback((id) => {
-    send({ action: id }).catch(() => setNotice(aiText(lang).actions.failed));
-  }, [send, lang]);
-  const stopAction = useCallback(() => { send({ command: AI_CMD.STOP }).catch(() => {}); }, [send]);
+  // the AI Lab: the settings of the actions, the actions the robot can use (the learning: src/ai/useAiLab.js)
   const changeAiSettings = useCallback((change) => {
     setAiSettings((prev) => { const next = { ...prev, ...change }; save('learn.ai.settings', JSON.stringify(next)); return next; });
     send(change).catch(() => {});
@@ -247,15 +244,26 @@ export default function App() {
   // ---- keys ---------------------------------------------------------------------------------------------------
   const live = source === 'robot';
   const online = snap.running && (!live || snap.link.status === 'connected');
+
+  // the AI Lab's brain: the examples, the learning, autonomous driving
+  const snapRef = useMemo(() => ({ get current() { return tele.current.s; } }), []);           // the latest state, not the last published one
+  const actionMs = useMemo(() => {
+    const d = Math.round(aiSettings.duration * 1000);
+    const longest = Math.max(d, ...aiSelected.map((id) => plan(id, d, aiSettings.maxSpeed, aiSettings.turnGain).ms));
+    return longest + Math.round(aiSettings.pause * 1000);
+  }, [aiSettings, aiSelected]);
+  const lab = useAiLab({ snapRef, send, selected: aiSelected, actionMs, enabled: online && program === 'ai', active: program === 'ai' });
+
   const keyState = useRef({});
-  keyState.current = { snap, online, send, ai: program === 'ai' };
+  keyState.current = { snap, online, send, ai: program === 'ai', lab };
   useEffect(() => {
     const on = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || e.target?.isContentEditable) return;
-      const { snap: s, online: ok, send: go, ai } = keyState.current;
+      const { snap: s, online: ok, send: go, ai, lab: l } = keyState.current;
       if (e.key === 'd' || e.key === 'D') { setSettings((v) => !v); return; }
+      if (ok && ai && e.key === ' ') { e.preventDefault(); l.toggleAuto(); return; }        // as in AlphAI: the space bar
       if (!ok || ai) return;
       if (e.key === ' ') { e.preventDefault(); go({ command: s.state === 'pause' ? CMD.RESUME : CMD.PAUSE }); }
       else if (e.key === 'g' || e.key === 'G') go({ command: s.learning ? CMD.FREEZE : CMD.LEARN });
@@ -279,7 +287,7 @@ export default function App() {
   const brainNow = snap.weights;
   const isAi = program === 'ai';
   const tabs = isAi
-    ? (live ? ['lab', 'actions'] : ['lab', 'actions', 'arena'])
+    ? (live ? ['lab', 'setup'] : ['lab', 'setup', 'arena'])
     : (live ? ['net', 'settings', 'curves'] : ['net', 'settings', 'curves', 'arena']);       // the real robot has no arena
   const shownTab = tabs.includes(tab) ? tab : tabs[0];
   const tabName = (id) => (isAi ? a.tabs[id] : t.tabs[id]);
@@ -335,10 +343,14 @@ export default function App() {
         {isAi ? (
           <div className="col main">
             <div data-tab="lab">
-              <AiLab a={a} snap={snap} enabled={enabled} selected={aiSelected} onAct={act} onStop={stopAction} />
+              <AiLab a={a} snap={snap} enabled={enabled} lab={lab} speed={aiSettings.maxSpeed} onSpeed={(v) => changeAiSettings({ maxSpeed: v })} />
             </div>
-            <div data-tab="actions">
-              <AiActionSettings a={a} selected={aiSelected} onSelect={chooseActions} settings={aiSettings} onSettings={changeAiSettings} enabled={enabled} foldable={wide} />
+            <div data-tab="setup">
+              <div className="ai-setup">
+                <AiSensorSettings a={a} lab={lab} foldable={wide} />
+                <AiActionSettings a={a} selected={aiSelected} onSelect={chooseActions} settings={aiSettings} onSettings={changeAiSettings} enabled={enabled} foldable={wide} />
+                <AiBrainSettings a={a} lab={lab} foldable={wide} />
+              </div>
             </div>
             {!live && <div data-tab="arena"><Arena t={t} sim={sim.current} speed={simSpeed} onSpeed={setSimSpeed} hit={null} foldable={wide} /></div>}
           </div>

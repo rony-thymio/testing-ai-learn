@@ -2,13 +2,13 @@
 // the same speeds (tests/ai.test.js replays what the Python program did, tick by tick). tick() takes what the sensors read
 // and the frame the page wrote in the LEDs (or null), and returns what the program said and did.
 import { FrameReceiver } from '../protocol.js';
-import { ACTIONS, plan } from '../ai/actions.js';
+import { ACTIONS, K, LIGHTS, plan } from '../ai/actions.js';
 
 export const TICK_MS = 20;
 const REPORT_TICKS = 5;
 const HEARTBEAT_TICKS = 150;
 const SPEED_LIMIT = 500;
-const MAXB = 16;
+const COAST_MS = 400;
 const KEY = { COMMAND: 19, ACTION: 20, DURATION: 21, PAUSE: 22, MAX_SPEED: 23, LIGHT: 24, TURN_GAIN: 25 };
 const CMD_QUIT = 6;
 const CMD_STOP = 8;
@@ -29,10 +29,11 @@ export class AiMode {
     this.length = 0;
     this.ml = 0;
     this.mr = 0;
-    this.red = false;
+    this.lit = -1;
     this.light = -1;
     this.p = new Array(7).fill(0);
     this.g = [-1, -1];
+    this.coast = 0;
     this.ticks = 0;
     this.beat = 0;
     this.quit = false;
@@ -53,39 +54,53 @@ export class AiMode {
     this.ml = p.left;
     this.mr = p.right;
     this.length = p.ms;
-    this.red = p.red;
+    this.lit = p.light;
+    this.coast = 0;
     this.phase = P.ACT;
     this.timer = 0;
     this.say('go', this.count, id);
   }
 
+  done() { this.say('done', this.count, this.action, ...this.p, ...this.g); }
+
   stopNow() {
     const was = this.phase;
     this.ml = 0;
     this.mr = 0;
-    this.red = false;
+    this.lit = -1;
+    this.coast = 0;
     this.phase = P.IDLE;
     this.timer = 0;
-    if (was !== P.IDLE) this.say('done', this.count, this.action);
+    if (was !== P.IDLE) this.done();
   }
 
   runPhase() {
     if (this.phase === P.ACT) {
       if (this.timer >= this.length) {
+        this.lit = -1;
+        this.timer = 0;
+        if (this.pauseMs === 0 && ACTIONS[this.action].kind === K.DRIVE) {
+          // no pause: done now, and the wheels go on a moment, so that the next action follows without a jolt
+          this.phase = P.IDLE;
+          this.coast = COAST_MS;
+          this.done();
+          return;
+        }
         this.ml = 0;
         this.mr = 0;
-        this.red = false;
         this.phase = P.REST;
-        this.timer = 0;
       } else {
         this.timer += TICK_MS;
       }
+    } else if (this.phase === P.IDLE && this.coast > 0) {
+      this.coast -= TICK_MS;
+      if (this.coast <= 0) { this.ml = 0; this.mr = 0; }
     }
     if (this.phase === P.REST) {
       if (this.timer >= this.pauseMs) {
         this.phase = P.IDLE;
         this.timer = 0;
-        this.say('done', this.count, this.action);
+        this.done();
       } else {
         this.timer += TICK_MS;
       }
@@ -126,7 +141,7 @@ export class AiMode {
 
   // ---- one tick ---------------------------------------------------------------------------------
   setBody() {
-    if (this.red) this.body = [MAXB, 0, 0];
+    if (this.lit >= 0) this.body = LIGHTS[this.lit].slice();
     else if (this.light >= 0) this.body = [(this.light >> 8) & 15, (this.light >> 4) & 15, this.light & 15];
     else if (this.phase === P.ACT) this.body = [8, 8, 8];
     else this.body = [2, 2, 6];

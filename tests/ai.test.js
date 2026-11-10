@@ -46,9 +46,9 @@ test('every action is on exactly one button of the Actions settings', () => {
 });
 
 test('what an action does', () => {
-  assert.deepEqual(plan(1, 250, 150, 100), { left: 150, right: 150, ms: 250, red: false });
-  assert.deepEqual(plan(7, 250, 155, 100), { left: -93, right: -155, ms: 250, red: false });
-  assert.deepEqual(plan(9, 250, 155, 100), { left: -16, right: -155, ms: 250, red: false }, 'rounded down, like Python');
+  assert.deepEqual(plan(1, 250, 150, 100), { left: 150, right: 150, ms: 250, light: -1 });
+  assert.deepEqual(plan(7, 250, 155, 100), { left: -93, right: -155, ms: 250, light: -1 });
+  assert.deepEqual(plan(9, 250, 155, 100), { left: -16, right: -155, ms: 250, light: -1 }, 'rounded down, like Python');
   const left = plan(17, 250, 150, 100);
   const right = plan(18, 250, 150, 100);
   assert.deepEqual([left.left, left.right, right.left, right.right], [-150, 150, 150, -150]);
@@ -56,8 +56,10 @@ test('what an action does', () => {
   assert.ok(Math.abs(plan(23, 250, 150, 100).ms - 2 * left.ms) <= 1, 'half a turn takes twice as long as a quarter');
   assert.ok(Math.abs(plan(17, 250, 150, 50).ms - left.ms / 2) <= 1, 'the gain scales the time');
   assert.ok(Math.abs(plan(17, 250, 300, 100).ms - left.ms / 2) <= 1, 'twice the speed, half the time');
-  assert.deepEqual(plan(24, 300, 150, 100), { left: 0, right: 0, ms: 300, red: true });
-  assert.deepEqual(plan(0, 300, 150, 100), { left: 0, right: 0, ms: 300, red: false });
+  assert.deepEqual(plan(24, 300, 150, 100), { left: 0, right: 0, ms: 300, light: 0 });
+  assert.deepEqual(plan(25, 300, 150, 100), { left: 0, right: 0, ms: 300, light: 1 });
+  assert.deepEqual(plan(26, 300, 150, 100), { left: 0, right: 0, ms: 300, light: 2 });
+  assert.deepEqual(plan(0, 300, 150, 100), { left: 0, right: 0, ms: 300, light: -1 });
 });
 
 test('the messages to the program: settings first, the action last, in the units of the program', () => {
@@ -83,6 +85,7 @@ test('the lines of the program', () => {
   });
   assert.deepEqual(parseRobotLine('@@go 3 17'), { type: 'go', count: 3, action: 17 });
   assert.deepEqual(parseRobotLine('@@done 3 17'), { type: 'done', count: 3, action: 17 });
+  assert.deepEqual(parseRobotLine('@@done 3 17 1 2 3 4 5 6 7 800 90'), { type: 'done', count: 3, action: 17, prox: [1, 2, 3, 4, 5, 6, 7], ground: [800, 90] });
   assert.deepEqual(parseRobotLine('@@s 25 10 150 100'), { type: 's', duration: 0.25, pause: 0.1, maxSpeed: 150, turnGain: 100 });
   assert.equal(parseRobotLine('@@a 1 2 3'), null);
   assert.equal(parseRobotLine('@@hello 2').version, 2);

@@ -11,7 +11,7 @@
 #
 # Actions (see ACTIONS below and src/ai/actions.js, which must say the same): drive with both wheels at a share
 # of the max speed for the duration, turn on the spot by an angle (the time it takes depends on the speed), stop,
-# or switch the red light on. A new action replaces the one that runs.
+# or switch a light on (red, green or blue). A new action replaces the one that runs.
 #
 # Buttons: centre = leave. The others do nothing.
 #
@@ -19,8 +19,9 @@
 #   robot -> page   "@@word ..." lines, see say(). Every 100 ms:
 #                     @@a phase action p0..p6 g0 g1 left right
 #                   (action: the one that runs or ran last, -1 before the first; g0 g1 the ground sensors, -1 when the
-#                   robot has none), when an action starts and ends: @@go k action, @@done k action (k counts the
-#                   actions), and when a setting changes (and every 3 s): @@s duration pause maxSpeed turnGain
+#                   robot has none), when an action starts and ends: @@go k action, @@done k action p0..p6 g0 g1
+#                   (k counts the actions; the sensors as they read when it is done, for the page to choose the next
+#                   one), and when a setting changes (and every 3 s): @@s duration pause maxSpeed turnGain
 #                   (hundredths of a second, hundredths of a second, speed units, percent).
 #   page -> robot   rx_poll() below.
 import thymio
@@ -36,6 +37,7 @@ TICK_MS = 20
 REPORT_TICKS = 5            # the sensors are said every 100 ms
 HEARTBEAT_TICKS = 150       # the settings are said again every 3 s
 SPEED_LIMIT = 500
+COAST_MS = 400              # without a pause, the wheels of a drive action keep turning this long for the next action to follow
 MAXB = 16
 
 # Turning on the spot: both wheels at the max speed, in opposite directions, for the time the angle takes. A speed
@@ -48,7 +50,7 @@ WHEEL_BASE = 94.0
 #   kind 0: drive, the left wheel at a % and the right wheel at b % of the max speed, for the duration
 #   kind 1: turn on the spot by a degrees (positive: to the left)
 #   kind 2: stop for the duration
-#   kind 3: red light for the duration, stopped
+#   kind 3: a light for the duration, stopped (a: 0 red, 1 green, 2 blue)
 K_DRIVE = 0
 K_TURN = 1
 K_STOP = 2
@@ -79,7 +81,10 @@ ACTIONS = [
     (K_TURN, -150, 0),          # 22
     (K_TURN, 180, 0),           # 23 half a turn
     (K_LIGHT, 0, 0),            # 24 red light
+    (K_LIGHT, 1, 0),            # 25 green light
+    (K_LIGHT, 2, 0),            # 26 blue light
 ]
+LIGHTS = [(MAXB, 0, 0), (0, MAXB, 0), (0, 0, MAXB)]
 
 # the items of the page's messages (see rx_poll)
 KEY_COMMAND = 19
@@ -135,14 +140,14 @@ def turn_ms(degrees, speed, gain):
 
 
 def plan(action, duration_ms, max_speed, gain):
-    # what an action does: (left speed, right speed, milliseconds, red light)
+    # what an action does: (left speed, right speed, milliseconds, light: -1 none, else its number in LIGHTS)
     kind, a, b = ACTIONS[action]
     if kind == K_DRIVE:
-        return (a * max_speed // 100, b * max_speed // 100, duration_ms, False)
+        return (a * max_speed // 100, b * max_speed // 100, duration_ms, -1)
     if kind == K_TURN:
         s = max_speed if a > 0 else -max_speed
-        return (-s, s, turn_ms(a, max_speed, gain), False)
-    return (0, 0, duration_ms, kind == K_LIGHT)
+        return (-s, s, turn_ms(a, max_speed, gain), -1)
+    return (0, 0, duration_ms, a if kind == K_LIGHT else -1)
 
 
 class Runner:
@@ -158,10 +163,11 @@ class Runner:
         self.length = 0
         self.ml = 0
         self.mr = 0
-        self.red = False
+        self.lit = -1               # the light of a light action (see LIGHTS), -1: none
         self.light = -1             # the page's colour for the body (12 bits: r, g, b), -1: the program's own
         self.p = [0] * 7
         self.g = [-1, -1]
+        self.coast = 0              # milliseconds the wheels keep turning after a drive action (no pause), waiting for the next
         self.ticks = 0
         self.beat = 0
         self.quit = False
@@ -176,37 +182,53 @@ class Runner:
             return
         self.count += 1
         self.action = action
-        self.ml, self.mr, self.length, self.red = plan(action, self.duration_ms, self.max_speed, self.turn_gain)
+        self.ml, self.mr, self.length, self.lit = plan(action, self.duration_ms, self.max_speed, self.turn_gain)
+        self.coast = 0
         self.phase = P_ACT
         self.timer = 0
         say("go", self.count, action)
+
+    def done(self):
+        say("done", self.count, self.action, *self.p + self.g)
 
     def stop_now(self):
         was = self.phase
         self.ml = 0
         self.mr = 0
-        self.red = False
+        self.lit = -1
+        self.coast = 0
         self.phase = P_IDLE
         self.timer = 0
         if was != P_IDLE:
-            say("done", self.count, self.action)
+            self.done()
 
     def run_phase(self):
         # one tick of the action that runs
         if self.phase == P_ACT:
             if self.timer >= self.length:
+                self.lit = -1
+                self.timer = 0
+                if self.pause_ms == 0 and ACTIONS[self.action][0] == K_DRIVE:
+                    # no pause: done now, and the wheels go on a moment, so that the next action follows without a jolt
+                    self.phase = P_IDLE
+                    self.coast = COAST_MS
+                    self.done()
+                    return
                 self.ml = 0
                 self.mr = 0
-                self.red = False
                 self.phase = P_REST
-                self.timer = 0
             else:
                 self.timer += TICK_MS
+        elif self.phase == P_IDLE and self.coast > 0:
+            self.coast -= TICK_MS
+            if self.coast <= 0:
+                self.ml = 0
+                self.mr = 0
         if self.phase == P_REST:
             if self.timer >= self.pause_ms:
                 self.phase = P_IDLE
                 self.timer = 0
-                say("done", self.count, self.action)
+                self.done()
             else:
                 self.timer += TICK_MS
 
@@ -290,8 +312,8 @@ class Runner:
 
     # ---- one tick ---------------------------------------------------------------------------------
     def body(self):
-        if self.red:
-            set_body(MAXB, 0, 0)
+        if self.lit >= 0:
+            set_body(*LIGHTS[self.lit])
         elif self.light >= 0:
             set_body((self.light >> 8) & 15, (self.light >> 4) & 15, self.light & 15)
         elif self.phase == P_ACT:

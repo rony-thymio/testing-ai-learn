@@ -21,7 +21,7 @@ SOURCE = open(os.path.join(HERE, "..", "src", "py", "ai_mode.py")).read()
 
 KEY_CMD, KEY_ACTION, KEY_DURATION, KEY_PAUSE, KEY_MAX_SPEED, KEY_LIGHT, KEY_TURN_GAIN = 19, 20, 21, 22, 23, 24, 25
 CMD_QUIT, CMD_STOP = 6, 8
-FORWARD, BACKWARD, STOP, TURN_90_LEFT, TURN_90_RIGHT, RED = 1, 2, 0, 17, 18, 24
+FORWARD, BACKWARD, STOP, TURN_90_LEFT, TURN_90_RIGHT, RED, GREEN, BLUE = 1, 2, 0, 17, 18, 24, 25, 26
 
 
 def run(robot, ticks, args=""):
@@ -95,7 +95,7 @@ class Actions(unittest.TestCase):
         go = words(r, "go")
         done = words(r, "done")
         self.assertEqual(go[0][1], [1, FORWARD])
-        self.assertEqual(done[0][1], [1, FORWARD])
+        self.assertEqual(done[0][1][:2], [1, FORWARD])
         moving = [t for t, l, rr in r.speeds if (l, rr) == (150, 150)]
         self.assertTrue(moving, "drives at the max speed")
         self.assertTrue(12 <= len(moving) <= 14, "for 0.25 s: %d ticks" % len(moving))
@@ -113,7 +113,8 @@ class Actions(unittest.TestCase):
         send_at(r, {5: [(KEY_DURATION, 50), (KEY_PAUSE, 0), (KEY_MAX_SPEED, 200), (KEY_ACTION, BACKWARD)]})
         run(r, 60)
         back = [t for t, l, rr in r.speeds if (l, rr) == (-200, -200)]
-        self.assertTrue(24 <= len(back) <= 26, "0.5 s backwards at 200: %d ticks" % len(back))
+        # 0.5 s backwards at 200, then (no pause) 0.4 s more while it waits for a next action that does not come
+        self.assertTrue(44 <= len(back) <= 46, "0.5 s + 0.4 s backwards at 200: %d ticks" % len(back))
         self.assertEqual(words(r, "s")[-1][1], [50, 0, 200, 100])
 
     def test_turns_take_the_time_of_their_angle(self):
@@ -131,12 +132,32 @@ class Actions(unittest.TestCase):
         self.assertEqual(len(left), len(right))
         self.assertTrue(abs(len(ticks_turning(TURN_90_LEFT, 50)) - len(left) / 2) <= 2, "the gain scales the time")
 
+    def test_without_pause_the_wheels_go_on_until_the_next_action(self):
+        r = VirtualRobot()
+        send_at(r, {5: [(KEY_PAUSE, 0), (KEY_ACTION, FORWARD)], 25: [(KEY_ACTION, FORWARD)]})
+        run(r, 80)
+        done = words(r, "done")
+        self.assertEqual(len(done), 2)
+        moving = [t for t, l, rr in r.speeds if (l, rr) == (150, 150)]
+        # forward from the first action to the end of the second: no stop between them
+        self.assertEqual(moving, list(range(moving[0], moving[-1] + 1)))
+        # after the second one, nothing more: the wheels stop after 0.4 s
+        self.assertTrue(done[1][0] + 18 <= moving[-1] + 1 <= done[1][0] + 22, (done[1][0], moving[-1]))
+        self.assertEqual(r.speed, (0, 0))
+
+    def test_turns_never_coast(self):
+        r = VirtualRobot()
+        send_at(r, {3: [(KEY_PAUSE, 0), (KEY_ACTION, TURN_90_LEFT)]})
+        run(r, 140)
+        done = words(r, "done")[0][0]
+        self.assertEqual([s for t, *s in r.speeds if t > done + 1], [[0, 0]] * len([1 for t, *s in r.speeds if t > done + 1]))
+
     def test_a_new_action_replaces_the_one_that_runs(self):
         r = VirtualRobot()
         send_at(r, {5: [(KEY_DURATION, 100), (KEY_ACTION, FORWARD)], 15: [(KEY_ACTION, BACKWARD)]})
         run(r, 120)
         self.assertEqual([v for _, v in words(r, "go")], [[1, FORWARD], [2, BACKWARD]])
-        self.assertEqual([v for _, v in words(r, "done")], [[2, BACKWARD]])
+        self.assertEqual([v[:2] for _, v in words(r, "done")], [[2, BACKWARD]])
         fwd = [t for t, l, rr in r.speeds if (l, rr) == (150, 150)]
         self.assertTrue(max(fwd) < 17)
 
@@ -144,9 +165,25 @@ class Actions(unittest.TestCase):
         r = VirtualRobot()
         send_at(r, {5: [(KEY_DURATION, 100), (KEY_ACTION, FORWARD)], 15: [(KEY_CMD, CMD_STOP)], 25: [(KEY_ACTION, RED)]})
         run(r, 40)
-        self.assertEqual([v for _, v in words(r, "done")][0], [1, FORWARD])
+        self.assertEqual([v[:2] for _, v in words(r, "done")][0], [1, FORWARD])
         self.assertEqual(r.speed, (0, 0))
         self.assertEqual(r.last["rgb"][1], (16, 0, 0), "the red light is on")
+
+    def test_green_and_blue_lights(self):
+        for action, colour in [(GREEN, (0, 16, 0)), (BLUE, (0, 0, 16))]:
+            r = VirtualRobot()
+            send_at(r, {5: [(KEY_DURATION, 100), (KEY_ACTION, action)]})
+            run(r, 20)
+            self.assertEqual(r.last["rgb"][1], colour)
+            self.assertEqual(r.speed, (0, 0))
+
+    def test_done_says_the_sensors(self):
+        r = VirtualRobot()
+        r.prox = [0, 100, 2000, 300, 0, 0, 4000]
+        r.ground = [850, 120]
+        send_at(r, {5: [(KEY_ACTION, FORWARD)]})
+        run(r, 40)
+        self.assertEqual(words(r, "done")[0][1], [1, FORWARD, 0, 100, 2000, 300, 0, 0, 4000, 850, 120])
 
     def test_light_of_the_page(self):
         r = VirtualRobot()
@@ -212,7 +249,7 @@ def golden_scenario(seed, ticks=1500):
             items.append((KEY_LIGHT, rnd.choice([-1, 0x0F0, 0xF00, 0x123])))
         if rnd.random() < 0.1:
             items.append((KEY_CMD, CMD_STOP))
-        items.append((KEY_ACTION, rnd.randint(0, 25)))
+        items.append((KEY_ACTION, rnd.randint(0, 27)))
         schedule[t] = items
         t += rnd.randint(4, 60)
     r = VirtualRobot()

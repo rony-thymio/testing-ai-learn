@@ -65,10 +65,18 @@ export function parseRobotLine(line) {
       if (v.length < 13 || !finite(v)) return null;
       return { type: 'a', phase: PHASES[v[0]] || 'idle', action: v[1], prox: v.slice(2, 9), ground: v.slice(9, 11), motors: [v[11], v[12]] };
     }
-    case 'go': case 'done': {
+    case 'go': {
       const v = ints(a, 2);
       if (v.length < 2 || !finite(v)) return null;
       return { type: word, count: v[0], action: v[1] };
+    }
+    case 'done': {
+      // the sensors as they read when the action is done (for the page to choose the next one)
+      const v = ints(a, 11);
+      if (v.length < 2 || !finite(v)) return null;
+      const ev = { type: 'done', count: v[0], action: v[1] };
+      if (v.length >= 11) { ev.prox = v.slice(2, 9); ev.ground = v.slice(9, 11); }
+      return ev;
     }
     case 's': {
       const v = ints(a, 4);

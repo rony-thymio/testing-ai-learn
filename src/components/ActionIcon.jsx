@@ -49,7 +49,7 @@ export default function ActionIcon({ id, size = 34, className = '' }) {
       </svg>
     );
   }
-  if (act.kind === K.LIGHT) extra = <circle cx="18" cy="19.5" r="4" className="ai-icon-red" />;
+  if (act.kind === K.LIGHT) extra = <circle cx="18" cy="19.5" r="4.5" className={`ai-icon-light l${act.a}`} />;
   const path = act.kind === K.TURN ? arcPath(act.a) : act.kind === K.DRIVE ? drivePath(act.a, act.b) : null;
   return (
     <svg viewBox="0 0 36 36" width={size} height={size} className={`ai-icon ${className}`} aria-hidden="true" focusable="false">

@@ -5,7 +5,7 @@
 export const K = { DRIVE: 0, TURN: 1, STOP: 2, LIGHT: 3 };
 
 // id: the number the robot knows; kind, a, b: what it does (see ai_mode.py): drive with the left wheel at a % and the right
-// one at b % of the max speed, turn on the spot by a degrees (positive: left), stop, red light.
+// one at b % of the max speed, turn on the spot by a degrees (positive: left), stop, a light (a: 0 red, 1 green, 2 blue).
 export const ACTIONS = [
   { id: 0, kind: K.STOP, a: 0, b: 0, name: 'stop' },
   { id: 1, kind: K.DRIVE, a: 100, b: 100, name: 'forward' },
@@ -32,7 +32,11 @@ export const ACTIONS = [
   { id: 22, kind: K.TURN, a: -150, b: 0, name: 'turn150Right' },
   { id: 23, kind: K.TURN, a: 180, b: 0, name: 'turn180' },
   { id: 24, kind: K.LIGHT, a: 0, b: 0, name: 'redLight' },
+  { id: 25, kind: K.LIGHT, a: 1, b: 0, name: 'greenLight' },
+  { id: 26, kind: K.LIGHT, a: 2, b: 0, name: 'blueLight' },
 ];
+// The colours of the light actions, as the robot shows them (r, g, b: 0..16).
+export const LIGHTS = [[16, 0, 0], [0, 16, 0], [0, 0, 16]];
 
 // The buttons of the Actions settings, in AlphAI's order (three a row): a button chooses one action, or a pair (left and right).
 export const ACTION_GROUPS = [
@@ -51,6 +55,8 @@ export const ACTION_GROUPS = [
   { id: 'turn150', actions: [21, 22] },
   { id: 'turn180', actions: [23] },
   { id: 'redLight', actions: [24] },
+  { id: 'greenLight', actions: [25] },
+  { id: 'blueLight', actions: [26] },
 ];
 
 // The settings of the actions (AlphAI's defaults: 0.25 s, a pause of 0.1 s, speed 150).
@@ -74,16 +80,16 @@ export function turnMs(degrees, speed, gain) {
   return Math.trunc((((((rad * WHEEL_BASE) / (2.0 * speed * MM_PER_UNIT)) * 1000.0) * gain) / 100.0));
 }
 
-// { left, right, ms, red }: the wheel speeds, how long, and whether the red light is on.
+// { left, right, ms, light }: the wheel speeds, how long, and the light that is on (-1: none, else its number in LIGHTS).
 const z = (v) => v + 0;                  // no -0 (a speed of 0 backwards is a speed of 0)
 export function plan(id, durationMs, maxSpeed, gain) {
   const act = ACTIONS[id];
-  if (act.kind === K.DRIVE) return { left: z(Math.floor((act.a * maxSpeed) / 100)), right: z(Math.floor((act.b * maxSpeed) / 100)), ms: durationMs, red: false };
+  if (act.kind === K.DRIVE) return { left: z(Math.floor((act.a * maxSpeed) / 100)), right: z(Math.floor((act.b * maxSpeed) / 100)), ms: durationMs, light: -1 };
   if (act.kind === K.TURN) {
     const s = act.a > 0 ? maxSpeed : -maxSpeed;
-    return { left: z(-s), right: z(s), ms: turnMs(act.a, maxSpeed, gain), red: false };
+    return { left: z(-s), right: z(s), ms: turnMs(act.a, maxSpeed, gain), light: -1 };
   }
-  return { left: 0, right: 0, ms: durationMs, red: act.kind === K.LIGHT };
+  return { left: 0, right: 0, ms: durationMs, light: act.kind === K.LIGHT ? act.a : -1 };
 }
 
 // The phases of the robot's program.

@@ -28,29 +28,43 @@ The link is the same as the Neurons mode (see the French README): the program is
 | `src/ai/i18n-ai.js` | The texts (English for now) |
 | `tests/test_ai_mode.py`, `tests/ai.test.js`, `tests/golden-ai.json` | The program tested on a virtual robot; the JavaScript copy checked against the Python one, tick by tick |
 
+## What the AI Lab does now (step 2: supervised learning)
+
+Laid out like AlphAI (from the activities and a screen recording of AlphAI with a Thymio 2):
+
+- **Headline**: "Supervised learning (paused), piloted / autonomous. Training data: N."
+- **Control bar**: Autonomous (also the space bar), Step by step, Learn, Forget the last, Reset AI, Speed.
+- **Sensors**: the values the network sees, from 0 to 1 (proximity: reading / 4000; black detection: 1 − ground / 1000),
+  and the last action.
+- **Neural network**: inputs, intermediate layers, actions. Thickness = strength of the connection; yellow = pushes towards
+  an action now, blue = holds it back.
+- **Actions** with the network's score (%) — the highest in orange — and the number of examples of each.
+- **Settings**: Sensors (proximity all / front / none, binary mode; ground off / black-or-white / values), Actions (AlphAI's
+  grid, now with green and blue lights; duration, pause, max speed, angle adjustment), AI (learning speed, intermediate layers
+  such as "10 20", the training data).
+
+How it works: with **Learn** on, clicking an action makes the robot do it and saves the situation (the sensors) with that
+action as an example; the network (`src/ai/brain.js`: tanh hidden layers, softmax outputs, gradient descent) learns from all
+the examples continuously. In **autonomous** mode, each time the robot says an action is done it also sends its sensors, and
+the page answers with the action the network scores highest (`src/ai/useAiLab.js`). With no pause, drive actions flow into
+each other (the wheels keep turning 0.4 s waiting for the next action). The examples are kept in the browser.
+
+Tested without a robot: the network learns the situations of activities 1, 3 and 5 (`tests/brain.test.js`); the virtual robot,
+taught to avoid obstacles, drives itself for two minutes without touching a wall (`tests/autonomous.test.js`); the whole
+Bluetooth chain with the simulated robot (teach, autonomous, stop).
+
 ## Plan
 
-1. **Robot link for actions** ✅ this step. Drive the robot with the action buttons; choose the actions, their duration, the
-   pause and the max speed (AlphAI's Actions tab).
-2. **Supervised learning** (A1, A3, A4, A5): Sensors and AI tabs, a network with hidden layers ("10 20"), the control bar
-   (learning, self-drive, single step, forget last action, reset learning), teaching by clicking an action. Black lines in the
-   virtual arena.
+1. Robot link for actions ✅
+2. Supervised learning ✅ (A1, A3, A4, A5)
 3. **Reinforcement learning** (A2): rewards (+100 straight, +55 turning, −50 penalty), reward and level bars, exploration,
    green and red lights, the value of each action in step-by-step mode.
-4. **Finishing**: save and load settings, ready-made settings for each activity, sharing by QR code.
+4. Finishing: save and load settings to a file, ready-made settings for each activity, Graphs, manual editing of weights,
+   black lines in the virtual arena.
 
-## Status of step 1
+## To check on a real Thymio 3
 
-Tested without a robot: the Python program on a virtual robot (`python3 -I tests/test_ai_mode.py`), the JavaScript copy
-against it, the whole Bluetooth link against the demo robot (`node tests/link.test.js`), and the page in a browser (computer,
-tablet, phone, light and dark).
-
-**To check on a real Thymio 3:**
-
-- the program starts (the first time it is installed, about 4 s);
-- the sensor numbers move when a hand comes close, and the **ground sensor values** on a light floor and on a black line
-  (the program uses `thymio.GROUND(0)` and `GROUND(1)`; the virtual robot guesses 900 and 120);
-- an action button makes the robot move, and how long it takes to react;
-- **"turn 90°"** really turns a quarter turn; if not, the *Turn calibration* slider corrects it: please note the value that
-  works;
-- the centre button of the robot stops the program.
+- The **ground sensor** values on white and on black (black detection should be near 0 on white, near 1 on black; if not,
+  `GROUND_WHITE` in `src/ai/brain.js` is adjusted).
+- **Turn 90°** turns a quarter turn (otherwise: Angle adjustment, and tell us the value).
+- Autonomous mode: how smoothly it chains actions, with and without pause.
