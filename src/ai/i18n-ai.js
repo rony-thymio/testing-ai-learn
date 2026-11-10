@@ -1,7 +1,7 @@
 // The words of the AI Lab. English only for now: every language of the application shows these (aiText below), until a
 // dictionary of its own is added here with the same keys.
 const en = {
-  program: { label: 'Mode', ann: 'Neurons', ai: 'AI Lab', annHint: 'The robot learns by itself to avoid obstacles (the white mode of the Thymio)', aiHint: 'Teach the robot yourself, as with AlphAI: examples (supervised learning) or rewards (reinforcement learning)' },
+  program: { label: 'Mode', ann: 'Neurons', ai: 'AI Lab', annHint: 'The robot learns by itself to avoid obstacles (the white mode of the Thymio)', aiHint: 'Teach the robot yourself: with examples (supervised learning) or with rewards (reinforcement learning)' },
   title: 'AI Lab',
   appSubtitle: 'Teach the robot: with examples or with rewards',
   starting: 'The AI Lab program is starting on the robot…',
