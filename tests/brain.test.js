@@ -139,3 +139,58 @@ test('no action selected', () => {
   b.addExample(near(1), null, 1);
   assert.equal(b.usable().length, 0);
 });
+
+// ---- reinforcement learning (activity 2) -----------------------------------------------------------------------------
+test('the rewards of activity 2: +100 straight, +55 turning forwards, -50 x penalty for a bad move', () => {
+  const b = new Brain({ actions: [1, 5, 6, 9, 10], sensors: { proximity: 'front' }, ai: { kind: 'reinforcement' } });
+  const clear = near(-1);
+  const wall = near(2, 3600);
+  const something = near(1, 1500);
+  assert.equal(b.reward(1, clear), 100, 'forward, nothing in front');
+  assert.equal(b.reward(5, clear), 55, 'forward to the left');
+  assert.equal(b.reward(3, clear), 80, 'a slight turn');
+  assert.equal(b.reward(1, wall), -50, 'forward against a wall');
+  assert.equal(b.reward(9, clear), -50, 'backwards with nothing in front');
+  assert.equal(b.reward(9, something), 0, 'backwards away from something');
+  assert.equal(b.reward(0, clear), 0, 'stop');
+  b.configure({ ai: { penalty: 1.5 } });
+  assert.equal(b.reward(1, wall), -75);
+  b.configure({ ai: { penalty: 0 } });
+  assert.equal(b.reward(1, wall) + 0, 0);
+});
+
+test('reinforcement learning: values, exploration, and a network that learns what pays', () => {
+  const b = new Brain({ actions: [1, 9], sensors: { proximity: 'front' }, ai: { kind: 'reinforcement', hidden: [10] } });
+  assert.equal(b.net.output, 'linear');
+  assert.equal(b.values(near(-1), null).length, 2);
+  // exploration: now and then another action than the best one
+  let explored = 0;
+  let seed = 12345;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  for (let i = 0; i < 2000; i++) if (b.chooseRL(near(-1), null, rand).explored) explored += 1;
+  assert.ok(explored > 150 && explored < 450, `${explored} explorations in 2000`);
+  b.configure({ ai: { exploration: false } });
+  assert.ok([...Array(200)].every(() => !b.chooseRL(near(-1), null, rand).explored));
+  // nothing in front: forward pays, backward costs; a wall in front: backward is better than forward
+  for (let i = 0; i < 300; i++) {
+    b.experience(near(-1), null, 1, near(-1), null);
+    b.experience(near(-1), null, 9, near(-1), null);
+    b.experience(near(2, 3000), null, 1, near(2, 3800), null);
+    b.experience(near(2, 3000), null, 9, near(2, 1500), null);
+  }
+  b.train(3000);
+  const free = b.values(near(-1), null);
+  const blocked = b.values(near(2, 3000), null);
+  assert.ok(free[0] > free[1], `free: ${free}`);
+  assert.ok(blocked[1] > blocked[0], `blocked: ${blocked}`);
+  assert.equal(b.chooseRL(near(-1), null, rand).action, 1);
+  // reset forgets what happened; the network saved comes back in another brain (sharing a trained robot)
+  const saved = JSON.parse(JSON.stringify(b.toJSON()));
+  const other = new Brain(saved);
+  assert.deepEqual(other.values(near(-1), null).map((v) => v.toFixed(1)), b.values(near(-1), null).map((v) => v.toFixed(1)));
+  b.reset();
+  assert.equal(b.transitions.length, 0);
+  // supervised again: probabilities, the examples were kept
+  b.configure({ ai: { kind: 'supervised' } });
+  assert.equal(b.net.output, 'softmax');
+});

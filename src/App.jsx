@@ -10,12 +10,14 @@ import Settings from './components/Settings.jsx';
 import Help from './components/Help.jsx';
 import QrShow from './components/QrShow.jsx';
 import QrScan from './components/QrScan.jsx';
-import AiLab, { AiActionSettings, AiBrainSettings, AiSensorSettings } from './components/AiLab.jsx';
+import AiLab, { AiActionSettings, AiBrainSettings, AiSensorSettings, AiShare } from './components/AiLab.jsx';
+import { DEFAULT_AI_CONFIG } from './ai/brain.js';
+import { decodeSetup, encodeSetup, isAiCode, linkFor, packSetup, QR_LIMIT } from './ai/share-ai.js';
 import { aiText } from './ai/i18n-ai.js';
 import { DEFAULT_ACTION_SETTINGS, DEFAULT_SELECTED, ACTIONS, plan } from './ai/actions.js';
 import useAiLab from './ai/useAiLab.js';
 import { BluetoothIcon, HelpIcon, QrIcon, ScanIcon, WarnIcon } from './icons.jsx';
-import { I18N, detectLang } from './i18n.js';
+import { I18N, detectLang, fmt } from './i18n.js';
 import { Telemetry } from './store.js';
 import { SimBackend } from './sim/sim-backend.js';
 import { RobotBackend } from './robot/robot-backend.js';
@@ -225,6 +227,11 @@ export default function App() {
   const scanQr = () => setQr({ scan: true });
   const showLink = (kind) => { if (APP_LINKS[kind]) { setSettings(false); setQr({ show: APP_LINKS[kind], link: kind }); } };      // from the settings: the address of the application, for the devices of the class
   const applyScanned = useCallback((text) => {
+    if (isAiCode(text)) {                                         // a trained AI (AI Lab)
+      decodeSetup(text).then((setup) => { if (setup) aiRef.current.adoptShared(setup); else aiRef.current.say(aiRef.current.a.share.notAi); });
+      setTimeout(() => setQr(null), 700);
+      return true;
+    }
     const cfg = decodeConfig(text);
     if (!cfg) return false;
     if (cfg.lang) setLang(cfg.lang);
@@ -253,6 +260,71 @@ export default function App() {
     return longest + Math.round(aiSettings.pause * 1000);
   }, [aiSettings, aiSelected]);
   const lab = useAiLab({ snapRef, send, selected: aiSelected, actionMs, enabled: online && program === 'ai', active: program === 'ai', log: onLog });
+
+  // ---- sharing a trained AI (src/ai/share-ai.js): a QR code, a link, a file; and the ready-made settings of the activities ------
+  const [shareMsg, setShareMsg] = useState('');
+  const [offer, setOffer] = useState(null);                         // an AI opened from a link, waiting for "Use it"
+  const currentSetup = () => ({ ...lab.brain.toJSON(), actions: aiSelected, actionSettings: aiSettings, name: name.trim() });
+  const applySetup = useCallback((setup) => {
+    const ids = ACTIONS.map((x) => x.id).filter((id) => setup.actions.includes(id));
+    setAiSelected(ids);
+    save('learn.ai.selected', JSON.stringify(ids));
+    const st = { ...DEFAULT_ACTION_SETTINGS, ...(setup.actionSettings || {}) };
+    setAiSettings(st);
+    save('learn.ai.settings', JSON.stringify(st));
+    send({ duration: st.duration, pause: st.pause, maxSpeed: st.maxSpeed, turnGain: st.turnGain }).catch(() => {});
+    lab.load({ ...setup, actions: ids, examples: setup.examples || [], ai: { ...DEFAULT_AI_CONFIG, ...setup.ai } });
+  }, [lab, send]);
+  const applyActivity = useCallback((p) => {
+    applySetup({ ...p, examples: [], network: null, actionSettings: { ...p.actionSettings, turnGain: aiSettings.turnGain } });   // the calibration of this robot stays
+  }, [applySetup, aiSettings.turnGain]);
+  const describe = (setup) => {
+    const kind = setup.ai.kind === 'reinforcement' ? a.headline.reinforcement : a.headline.supervised;
+    const names = setup.actions.map((id) => a.action[ACTIONS[id]?.name]).filter(Boolean).join(', ');
+    return `${setup.name ? `"${setup.name}" · ` : ''}${fmt(setup.ai.kind === 'reinforcement' ? a.share.what1Rl : a.share.what1, { kind, n: setup.examples.length, actions: names })}`;
+  };
+  const adoptShared = useCallback((setup) => {
+    if (programRef.current !== 'ai') chooseProgram('ai');
+    applySetup(setup);
+    setShareMsg(fmt(a.share.loaded, { what: describe(setup) }));
+    setNotice(fmt(a.share.loaded, { what: describe(setup) }));
+  }, [applySetup, chooseProgram, a]);                                // eslint-disable-line react-hooks/exhaustive-deps
+  const aiRef = useRef({});
+  aiRef.current = { adoptShared, a, say: setShareMsg };
+  const shareLink = async () => linkFor(await encodeSetup(currentSetup()), window.location.href);
+  const showAiQr = async () => {
+    setShareMsg('');
+    const link = await shareLink();
+    if (link.length > QR_LIMIT + 80) { setShareMsg(fmt(a.share.tooBig, { n: link.length })); setNotice(fmt(a.share.tooBig, { n: link.length })); return; }
+    setQr({ show: link, caption: { name: showName ? name.trim() : '', when: formatWhen(new Date(), lang) } });
+  };
+  const copyAiLink = async () => {
+    try { await navigator.clipboard.writeText(await shareLink()); setShareMsg(a.share.copied); } catch { setShareMsg(a.share.copyFailed); }
+  };
+  const saveAiFile = () => {
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    const fileName = `thymio-ai-${stamp}.json`;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(packSetup(currentSetup()), null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setShareMsg(fmt(a.share.saved, { name: fileName }));
+  };
+  const openAiFile = async (text) => {
+    const setup = await decodeSetup(text);
+    if (setup) adoptShared(setup);
+    else setShareMsg(a.share.notAi);
+  };
+  // a link with #ai=...: the AI it carries is offered (not used without asking)
+  useEffect(() => {
+    if (!/#ai=TAI1\./.test(window.location.hash)) return;
+    decodeSetup(window.location.hash).then((setup) => { if (setup) setOffer(setup); });
+    try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch { /* the address stays */ }
+  }, []);
 
   const keyState = useRef({});
   keyState.current = { snap, online, send, ai: program === 'ai', lab };
@@ -319,8 +391,8 @@ export default function App() {
           <div className="top-end">
             {live && link.status === 'connected' && <button type="button" className="btn small" onClick={disconnect}>{t.head.disconnect}</button>}
             {!live && bluetooth && <button type="button" className="btn small hide-narrow" onClick={connect}><BluetoothIcon size={16} />{t.head.connect}</button>}
-            {!isAi && <button type="button" className="icon-btn bar-btn" onClick={showQr} aria-label={t.qr.show} title={t.qr.show}><QrIcon /></button>}
-            {!isAi && <button type="button" className="icon-btn bar-btn scan" onClick={scanQr} disabled={!enabled} aria-label={t.qr.scan} title={t.qr.scan}><ScanIcon /></button>}
+            <button type="button" className="icon-btn bar-btn" onClick={isAi ? showAiQr : showQr} aria-label={isAi ? a.share.qr : t.qr.show} title={isAi ? a.share.qr : t.qr.show}><QrIcon /></button>
+            <button type="button" className="icon-btn bar-btn scan" onClick={scanQr} disabled={!isAi && !enabled} aria-label={isAi ? a.share.scan : t.qr.scan} title={isAi ? a.share.scan : t.qr.scan}><ScanIcon /></button>
             <button type="button" className="icon-btn bar-btn" onClick={() => setHelp(true)} aria-label={t.head.help} title={t.head.help}><HelpIcon /></button>
           </div>
         </header>
@@ -339,6 +411,14 @@ export default function App() {
         </div>
       )}
 
+      {offer && (
+        <div className="banner offer" role="alert">
+          <span>{fmt(a.share.offer, { what: describe(offer) })}</span>
+          <button type="button" className="btn small primary" onClick={() => { adoptShared(offer); setOffer(null); }}>{a.share.use}</button>
+          <button type="button" className="btn small" onClick={() => setOffer(null)}>{a.share.ignore}</button>
+        </div>
+      )}
+
       <main>
         {isAi ? (
           <div className="col main">
@@ -349,7 +429,8 @@ export default function App() {
               <div className="ai-setup">
                 <AiSensorSettings a={a} lab={lab} foldable={wide} />
                 <AiActionSettings a={a} selected={aiSelected} onSelect={chooseActions} settings={aiSettings} onSettings={changeAiSettings} enabled={enabled} foldable={wide} />
-                <AiBrainSettings a={a} lab={lab} foldable={wide} />
+                <AiBrainSettings a={a} lab={lab} onPreset={applyActivity} foldable={wide} />
+                <AiShare a={a} onSaveFile={saveAiFile} onOpenFile={openAiFile} onCopyLink={copyAiLink} onShowQr={showAiQr} onScan={scanQr} message={shareMsg} foldable={wide} />
               </div>
             </div>
             {!live && <div data-tab="arena"><Arena t={t} sim={sim.current} speed={simSpeed} onSpeed={setSimSpeed} hit={null} foldable={wide} /></div>}

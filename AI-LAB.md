@@ -53,14 +53,27 @@ Tested without a robot: the network learns the situations of activities 1, 3 and
 taught to avoid obstacles, drives itself for two minutes without touching a wall (`tests/autonomous.test.js`); the whole
 Bluetooth chain with the simulated robot (teach, autonomous, stop).
 
+## Step 3: reinforcement learning, sharing, a design of our own
+
+- **Reinforcement learning** (activity 2): AI settings → Type of learning. The robot tries actions; after each one it gets a
+  reward from its front sensors (+100 forward straight, +55 forward turning, −50 × penalty for a bad move, 0 otherwise),
+  glows green or red, and the network learns the value of each action (Q-learning with a slowly updated copy of the network).
+  Reward and level bars (level = mean of the last minute), Exploration button (an explored action is shown in blue), the
+  penalty setting. Tested: on the virtual robot in an arena with walls, the level goes from about 45 to 65 in five minutes.
+- **Ready-made settings** for activities 1 to 5 (AI settings).
+- **Share this AI**: a QR code, a link (`#ai=…`, the page offers to use it) or a file. It carries the sensors, the actions and
+  their settings, the kind of learning, the examples and the network: another tablet drives its robot the same way at once.
+- **Design**: the actions are drawn as the Thymio seen from above with an arrow on each wheel (blue forward, red backward), a
+  slice for the angle of a pivot, the body coloured for a light; the network as in the Neurons mode (each sensor in its colour,
+  blue/red connections, "+" neurons).
+- The version before this redesign is kept in the branch `backup-v2-alphai-look`.
+
 ## Plan
 
 1. Robot link for actions ✅
 2. Supervised learning ✅ (A1, A3, A4, A5)
-3. **Reinforcement learning** (A2): rewards (+100 straight, +55 turning, −50 penalty), reward and level bars, exploration,
-   green and red lights, the value of each action in step-by-step mode.
-4. Finishing: save and load settings to a file, ready-made settings for each activity, Graphs, manual editing of weights,
-   black lines in the virtual arena.
+3. Reinforcement learning ✅ (A2), sharing ✅, ready-made settings ✅
+4. Next: the Graphs window, manual editing of weights, black lines in the virtual arena, other languages.
 
 ## To check on a real Thymio 3
 

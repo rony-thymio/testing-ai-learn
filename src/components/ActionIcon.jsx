@@ -1,66 +1,65 @@
-import React, { useId } from 'react';
+import React from 'react';
+import RobotBody from './RobotBody.jsx';
 import { ACTIONS, K } from '../ai/actions.js';
 
-// The picture of an action, as in AlphAI: the robot seen from above (its nose up) and an arrow for where it goes. A turn on the
-// spot is an arc around the robot, as long as the angle; stop is a square; the red light a red dot on the robot.
-const C = { x: 18, y: 19.8 };
+// The picture of an action, in the style of the rest of the application: the Thymio 3 seen from above (front up, as in the
+// pictures of the network), and beside each wheel an arrow for what that wheel does: up and blue forwards, down and red
+// backwards, as long as its share of the speed. A turn on the spot says its angle on the body; stop has no arrow and a square;
+// a light colours the body, as the real robot does.
+const ARROW_X = 70;                         // the arrows, outside the wheels
+const WHEEL_Y = 26;                         // the middle of the wheels (RobotBody's WHEEL.y)
+const LIGHT = ['#e02b2b', '#19b33a', '#2a6fe0'];
 
-function arcPath(degrees) {
-  // from the top of a circle around the robot, turning left (anticlockwise on the screen) for positive degrees
-  const r = Math.abs(degrees) < 45 ? 13 : 15.5;                   // a small angle is drawn closer, so that it shows
-  const a0 = -Math.PI / 2;
-  const a1 = a0 - (degrees * Math.PI) / 180;
-  const p = (a) => [C.x + r * Math.cos(a), C.y + r * Math.sin(a)];
-  const [x0, y0] = p(a0);
-  const short = Math.min(0.22, Math.abs(a1 - a0) * 0.3);          // a little short, for the arrow head
-  const [x1, y1] = p(a1 + (degrees > 0 ? short : -short));
-  const large = Math.abs(degrees) > 180 ? 1 : 0;
-  const sweep = degrees > 0 ? 0 : 1;
-  return `M${x0.toFixed(2)},${y0.toFixed(2)} A${r},${r} 0 ${large} ${sweep} ${x1.toFixed(2)},${y1.toFixed(2)}`;
+function WheelArrow({ side, share }) {
+  if (!share) return null;
+  const x = side * ARROW_X;
+  const len = 18 + 46 * Math.min(1, Math.abs(share) / 100);
+  const dir = share > 0 ? -1 : 1;           // forwards: up on the screen
+  const y0 = WHEEL_Y + (dir < 0 ? 20 : -20);
+  const y1 = y0 + dir * len;
+  const head = `M${x - 13},${y1 - dir * 2} L${x + 13},${y1 - dir * 2} L${x},${y1 + dir * 16} Z`;
+  return (
+    <g className={`ai-wheel-arrow ${share > 0 ? 'fwd' : 'back'}`}>
+      <path d={`M${x},${y0} V${y1}`} />
+      <path d={head} className="head" />
+    </g>
+  );
 }
 
-function drivePath(a, b) {
-  // the share of each wheel: the same = straight, different = a curve towards the side of the slower wheel (forwards or
-  // backwards: with the right wheel faster the robot drifts to its left either way)
-  const back = a < 0 && b < 0;
-  const bend = (Math.abs(b) - Math.abs(a)) / 100;                 // > 0: the right wheel is faster
-  const y0 = back ? 29.5 : 10.5;
-  const dir = back ? 1 : -1;
-  if (Math.abs(bend) < 0.01) return `M${C.x},${y0} V${y0 + dir * 7}`;
-  const end = [C.x - bend * 13, y0 + dir * (8 - Math.abs(bend) * 3)];
-  return `M${C.x},${y0} Q${C.x},${y0 + dir * 6.5} ${end[0].toFixed(2)},${end[1].toFixed(2)}`;
+// The angle of a turn on the spot, as a slice of a disc on the body (from the front, towards the side it turns to).
+function AngleWedge({ deg }) {
+  const r = 38;
+  const cy = -4;
+  const a = (Math.min(179.9, Math.abs(deg)) * Math.PI) / 180;
+  const side = deg > 0 ? -1 : 1;                            // left: anticlockwise on the screen
+  const x = side * r * Math.sin(a);
+  const y = cy - r * Math.cos(a);
+  const large = Math.abs(deg) > 180 ? 1 : 0;
+  return (
+    <g className="ai-icon-wedge">
+      <circle cx="0" cy={cy} r={r} className="disc" />
+      <path d={`M0,${cy} L0,${cy - r} A${r},${r} 0 ${large} ${side > 0 ? 1 : 0} ${x.toFixed(1)},${y.toFixed(1)} Z`} className="slice" />
+    </g>
+  );
 }
 
 export default function ActionIcon({ id, size = 34, className = '' }) {
-  const marker = useId().replace(/:/g, '');
   const act = ACTIONS[id];
   if (!act) return null;
-  const robot = (
-    <g className="ai-icon-robot">
-      <path d="M11,15.5 Q11,11 18,11 Q25,11 25,15.5 V28.5 H11 Z" />
-      <circle cx="18" cy="15" r="1.4" className="ai-icon-nose" />
-    </g>
-  );
-  let extra = null;
-  if (act.kind === K.STOP) {
-    return (
-      <svg viewBox="0 0 36 36" width={size} height={size} className={`ai-icon ${className}`} aria-hidden="true" focusable="false">
-        <rect x="10" y="10" width="16" height="16" rx="2" className="ai-icon-stop" />
-      </svg>
-    );
-  }
-  if (act.kind === K.LIGHT) extra = <circle cx="18" cy="19.5" r="4.5" className={`ai-icon-light l${act.a}`} />;
-  const path = act.kind === K.TURN ? arcPath(act.a) : act.kind === K.DRIVE ? drivePath(act.a, act.b) : null;
+  let left = 0;
+  let right = 0;
+  if (act.kind === K.DRIVE) { left = act.a; right = act.b; }
+  if (act.kind === K.TURN) { left = act.a > 0 ? -100 : 100; right = -left; }
+  const light = act.kind === K.LIGHT ? LIGHT[act.a] : null;
   return (
-    <svg viewBox="0 0 36 36" width={size} height={size} className={`ai-icon ${className}`} aria-hidden="true" focusable="false">
-      <defs>
-        <marker id={marker} viewBox="0 0 10 10" refX="5" refY="5" markerWidth="3.3" markerHeight="3.3" orient="auto-start-reverse">
-          <path d="M0,0 L10,5 L0,10 Z" className="ai-icon-head" />
-        </marker>
-      </defs>
-      {robot}
-      {extra}
-      {path && <path d={path} className="ai-icon-arrow" markerEnd={`url(#${marker})`} />}
+    <svg viewBox="-92 -84 184 184" width={size} height={size} className={`ai-icon ${className}`} aria-hidden="true" focusable="false">
+      <g className="ai-icon-robot" style={light ? { '--body': light } : undefined}>
+        <RobotBody details={false} className={light ? 'lit' : ''} />
+      </g>
+      <WheelArrow side={-1} share={left} />
+      <WheelArrow side={1} share={right} />
+      {act.kind === K.TURN && <AngleWedge deg={act.a} />}
+      {act.kind === K.STOP && <rect x="-15" y="-21" width="30" height="30" rx="4" className="ai-icon-stop" />}
     </svg>
   );
 }
