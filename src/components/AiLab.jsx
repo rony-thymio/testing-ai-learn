@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import RobotBody from './RobotBody.jsx';
 import ActionIcon from './ActionIcon.jsx';
 import Slider from './Slider.jsx';
@@ -18,7 +18,54 @@ import { BrainIcon, CheckIcon, CopyIcon, DownloadIcon, FolderIcon, PlayIcon, QrI
 const ROW = 54;                          // the height of an action's row (at least): the output neurons are drawn in front of their row
 const INPUT_GAP = 30;                    // the room an input neuron needs
 
-export default function AiLab({ a, snap, enabled, lab, speed, onSpeed }) {
+// Which activity the current settings are: the same kind of learning, sensors and actions as its ready-made settings.
+export function currentActivity(brain) {
+  const same = (x, y) => x.length === y.length && x.every((v) => y.includes(v));
+  const p = PRESETS.find((q) => q.ai.kind === brain.ai.kind && same(q.actions, brain.actions)
+    && Object.keys(q.sensors).every((k) => q.sensors[k] === brain.sensors[k]));
+  return p ? p.id : null;
+}
+
+// The five activities: one click (and a confirmation) sets the sensors, the actions and the AI as the activity sheet says.
+// The one in use is marked; after a change of actions or sensors, none is.
+export function ActivityPicker({ a, lab, onPreset, compact = false }) {
+  const s = a.brainSettings;
+  const [asking, setAsking] = useState(null);
+  const [done, setDone] = useState(null);
+  useEffect(() => { if (!done) return undefined; const id = setTimeout(() => setDone(null), 4000); return () => clearTimeout(id); }, [done]);
+  const now = currentActivity(lab.brain);
+  const learnt = lab.brain.examples.length > 0 || lab.brain.usable().length > 0;
+  const pick = (p) => {
+    if (p.id === now && !learnt) return;
+    if (!learnt) { onPreset(p); setDone(p.id); return; }        // nothing to lose: no question
+    setAsking(p.id);
+  };
+  return (
+    <div className={`ai-activities ${compact ? 'compact' : ''}`}>
+      <span className="ai-flabel">{compact ? s.activity : s.presets}</span>
+      <div className="ai-presets" role="group" aria-label={s.presets}>
+        {PRESETS.map((p) => (
+          <button key={p.id} type="button" className={`ai-preset ${now === p.id ? 'on' : ''} ${asking === p.id ? 'asking' : ''}`} aria-pressed={now === p.id}
+            onClick={() => pick(p)} title={s.presetsHint}>
+            {now === p.id && <CheckIcon size={14} />}{s.preset[p.id]}
+          </button>
+        ))}
+        {!now && <span className="muted small ai-custom">{s.custom}</span>}
+      </div>
+      {asking && (
+        <div className="ai-ask" role="alertdialog" aria-label={s.preset[asking]}>
+          <span>{fmt(s.presetConfirm, { name: s.preset[asking] })}</span>
+          <button type="button" className="btn small primary" onClick={() => { onPreset(PRESETS.find((p) => p.id === asking)); setDone(asking); setAsking(null); }}>{s.presetApply}</button>
+          <button type="button" className="btn small" onClick={() => setAsking(null)}>{s.cancel}</button>
+        </div>
+      )}
+      {done && !asking && <p className="ai-done small" role="status"><CheckIcon size={14} />{fmt(s.presetDone, { name: s.preset[done] })}</p>}
+      {!compact && <span className="muted small">{s.presetsHint}</span>}
+    </div>
+  );
+}
+
+export default function AiLab({ a, snap, enabled, lab, speed, onSpeed, onPreset }) {
   const { brain } = lab;
   const rl = brain.reinforcement;
   const ai = snap.ai;
@@ -57,7 +104,13 @@ export default function AiLab({ a, snap, enabled, lab, speed, onSpeed }) {
         </p>
       )}
 
+      {onPreset && <ActivityPicker a={a} lab={lab} onPreset={onPreset} compact />}
+
       <AiControlBar a={a} lab={lab} enabled={enabled} hasExamples={brain.examples.length > 0 || (rl && n > 0)} hasActions={actions.length > 0} speed={speed} onSpeed={onSpeed} />
+      <p className={`ai-mode-note small ${lab.auto ? 'auto' : ''}`} aria-live="polite">
+        {rl ? (lab.auto ? (lab.learn ? a.mode.rlAutoLearn : a.mode.rlAutoNoLearn) : a.mode.rlPiloted)
+          : (lab.auto ? a.mode.slAuto : lab.learn ? a.mode.slTeach : a.mode.slPaused)}
+      </p>
 
       <div className="ai-grid">
         <SensorPanel a={a} snap={snap} brain={brain} enabled={enabled} />
@@ -135,7 +188,8 @@ function AiControlBar({ a, lab, enabled, hasExamples, hasActions, speed, onSpeed
       <button type="button" className="ai-tool" disabled={!enabled || lab.auto || !hasActions} onClick={lab.step} title={b.stepHint}>
         <span className="ai-glyph" aria-hidden="true">⏭</span><span>{b.step}</span>
       </button>
-      <button type="button" className={`ai-tool ${lab.learn ? 'on' : ''}`} aria-pressed={lab.learn} onClick={() => lab.setLearn(!lab.learn)} title={rl ? b.learnHintRl : b.learnHint}>
+      <button type="button" className={`ai-tool ${lab.learn && !(lab.auto && !rl) ? 'on' : ''}`} aria-pressed={lab.learn} disabled={lab.auto && !rl}
+        onClick={() => lab.setLearn(!lab.learn)} title={rl ? b.learnHintRl : lab.auto ? b.learnHintAuto : b.learnHint}>
         <BrainIcon size={18} /><span>{b.learn}</span>
       </button>
       {rl ? (
@@ -412,7 +466,6 @@ export function AiBrainSettings({ a, lab, onPreset, foldable = true }) {
   const { brain } = lab;
   const rl = brain.reinforcement;
   const [text, setText] = useState(brain.ai.hidden.join(' '));
-  const [asking, setAsking] = useState(null);
   const parsed = parseLayers(text);
   const pending = parsed.join(' ') !== brain.ai.hidden.join(' ');
   const apply = () => { lab.configure({ ai: { hidden: parsed } }); setText(parsed.join(' ')); };
@@ -425,22 +478,7 @@ export function AiBrainSettings({ a, lab, onPreset, foldable = true }) {
       </div></header>
       {open && (
         <div id="ai-brain-body" className="ai-form">
-          <div className="ai-field">
-            <span className="ai-flabel">{s.presets}</span>
-            <div className="ai-presets">
-              {PRESETS.map((p) => (
-                <button key={p.id} type="button" className={`btn small ${asking === p.id ? 'on' : ''}`} onClick={() => setAsking(p.id)}>{s.preset[p.id]}</button>
-              ))}
-            </div>
-            {asking && (
-              <p className="ai-confirm-line small">
-                {fmt(s.presetConfirm, { name: s.preset[asking] })}
-                <button type="button" className="btn small primary" onClick={() => { onPreset(PRESETS.find((p) => p.id === asking)); setAsking(null); setText((PRESETS.find((p) => p.id === asking).ai.hidden || []).join(' ')); }}>{s.presetApply}</button>
-                <button type="button" className="btn small" onClick={() => setAsking(null)}>{s.cancel}</button>
-              </p>
-            )}
-            <span className="muted small">{s.presetsHint}</span>
-          </div>
+          <ActivityPicker a={a} lab={lab} onPreset={(p) => { onPreset(p); setText((p.ai.hidden || []).join(' ')); }} />
           <div className="ai-brain-form">
             <div>
               <Seg label={s.kind} value={brain.ai.kind} onChange={(v) => lab.configure({ ai: { kind: v } })}

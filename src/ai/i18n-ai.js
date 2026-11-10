@@ -20,6 +20,15 @@ const en = {
     empty: 'Training data: none.',
     decision: 'The network chose: {action} ({p} %)',
   },
+  // one line under the controls: what is going on, and what to do next
+  mode: {
+    slTeach: 'Teaching: click an action. The robot does it and remembers the situation as an example. When it has enough examples, press Autonomous.',
+    slPaused: 'Learn is off: clicking an action makes the robot do it, without saving an example.',
+    slAuto: 'The robot drives itself with what it has learnt. Learning is paused. Stop Autonomous to teach it more.',
+    rlPiloted: 'Press Autonomous: the robot will try actions by itself and learn from the rewards and penalties.',
+    rlAutoLearn: 'The robot drives itself AND learns at the same time: in reinforcement learning, this is how it learns. When the Level stops rising, switch off Exploration and Learn to see what it has learnt.',
+    rlAutoNoLearn: 'The robot drives itself with what it has learnt, without learning more.',
+  },
   phase: { idle: 'Waiting', act: 'Doing: {action}', rest: 'Short pause', offline: 'Not running' },
   bar: {
     title: 'Controls',
@@ -29,6 +38,7 @@ const en = {
     stepHint: 'The robot does one action, chosen by the network, then waits',
     learn: 'Learn',
     learnHint: 'On: each action you click is saved as an example, and the network learns from the examples. Off: the network does not change.',
+    learnHintAuto: 'Paused while the robot drives itself. Stop Autonomous to teach it more.',
     learnHintRl: 'On: the network learns from the rewards and penalties after each action. Off: the network does not change.',
     explore: 'Exploration',
     exploreHint: 'On: now and then the robot tries another action than the best one (shown in blue). Needed to learn; switch it off once the robot has learnt.',
@@ -119,6 +129,9 @@ const en = {
     kindHintRl: 'The robot tries actions by itself and learns from rewards and penalties (activity 2).',
     steps: 'Steps learnt: {n}',
     presets: 'Ready-made settings for the activities',
+    activity: 'Activity',
+    custom: 'Your own settings',
+    presetDone: 'Settings of "{name}" in use.',
     presetsHint: 'Sets the sensors, the actions and the AI as the activity sheet says. The teams can then change the actions.',
     preset: { a1: '1 · First learning', a2: '2 · The arena', a3: '3 · Keep the track', a4: '4 · Don\'t stay there', a5: '5 · The autonomous car' },
     presetConfirm: 'Use the settings of "{name}"? What the robot learnt is removed.',

@@ -68,6 +68,16 @@ Bluetooth chain with the simulated robot (teach, autonomous, stop).
   blue/red connections, "+" neurons).
 - The version before this redesign is kept in the branch `backup-v2-alphai-look`.
 
+After the first tests in class:
+
+- With the virtual robot, the **arena is beside the lab** (on a tablet held upright, it stays pinned at the bottom of the
+  screen), so the robot can be watched while it is taught.
+- The **activities** are at the top of the lab: the one in use is marked ✓. With nothing learnt yet, one click switches;
+  otherwise the page asks first. After a change of sensors or actions, "Your own settings" shows instead.
+- **Learn and Autonomous**: in supervised learning it is one or the other (Learn is greyed out while the robot drives
+  itself, and comes back when it stops). In reinforcement learning the robot drives itself *and* learns, which is how it
+  learns. A line under the controls says what is going on and what to do next.
+
 ## Plan
 
 1. Robot link for actions ✅

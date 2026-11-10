@@ -11,7 +11,7 @@ import { CubeIcon, ResetIcon, TrashIcon, PlusIcon, EraserIcon } from '../icons.j
 // dragged with a finger or the mouse; the robot is drawn with its seven sensor beams, as long as the readings are large.
 const SPEEDS = [1, 2, 5, 10];
 
-export default function Arena({ t, sim, speed, onSpeed, hit, foldable = true }) {
+export default function Arena({ t, sim, speed, onSpeed, hit, foldable = true, compact = false }) {
   const arena = sim.robot.arena;
   const [open, toggle] = useFold('arena', foldable);       // the arena can be hidden: the virtual robot goes on without it
   // the arena is mutable and moves 50 times a second: it paints itself on its own clock
@@ -63,7 +63,7 @@ export default function Arena({ t, sim, speed, onSpeed, hit, foldable = true }) 
   const hitFresh = hit && sim.robot.clock - hit.t < 1500;
 
   return (
-    <section className={`card arena ${open ? '' : 'folded'}`} aria-label={t.arena.title}>
+    <section className={`card arena ${compact ? 'compact' : ''} ${open ? '' : 'folded'}`} aria-label={t.arena.title}>
       <header className="card-head">
         <div>
           <FoldTitle open={open} onToggle={toggle} controls="arena-body" foldable={foldable}>{t.arena.title}</FoldTitle>

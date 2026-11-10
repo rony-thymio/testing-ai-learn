@@ -200,13 +200,14 @@ export default function useAiLab({ snapRef, send, selected, actionMs, enabled, a
     changed();
   }, [brain, changed, setLight]);
 
-  // Supervised: learning pauses when the robot drives itself, as in AlphAI (Learn can be switched on again by hand).
+  // Supervised: learning pauses when the robot drives itself, and comes back when it stops.
   // Reinforcement: learning goes on, that is how it learns.
   const toggleAuto = useCallback(() => {
     const was = live.current.auto;
     setAuto(!was);
     live.current.log('info', `AI: autonomous ${was ? 'off' : 'on'} (${brain.reinforcement ? 'reinforcement' : 'supervised'}, ${brain.usable().length} ${brain.reinforcement ? 'steps' : 'examples'}, actions ${brain.actions.join(' ')})`);
-    if (!was && !brain.reinforcement) setLearn(false);
+    // either teaching or driving alone: Learn goes off while it drives itself, and on again when you take over
+    if (!brain.reinforcement) setLearn(was);
     if (!was && brain.reinforcement) setLearn(true);
     if (was) { waiting.current = null; send({ command: AI_CMD.STOP }).catch(() => {}); save(); }        // the robot stops at once
   }, [send, brain, save]);

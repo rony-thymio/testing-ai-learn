@@ -359,7 +359,7 @@ export default function App() {
   const brainNow = snap.weights;
   const isAi = program === 'ai';
   const tabs = isAi
-    ? (live ? ['lab', 'setup'] : ['lab', 'setup', 'arena'])
+    ? ['lab', 'setup']                                                                     // the arena is in the lab
     : (live ? ['net', 'settings', 'curves'] : ['net', 'settings', 'curves', 'arena']);       // the real robot has no arena
   const shownTab = tabs.includes(tab) ? tab : tabs[0];
   const tabName = (id) => (isAi ? a.tabs[id] : t.tabs[id]);
@@ -422,8 +422,10 @@ export default function App() {
       <main>
         {isAi ? (
           <div className="col main">
-            <div data-tab="lab">
-              <AiLab a={a} snap={snap} enabled={enabled} lab={lab} speed={aiSettings.maxSpeed} onSpeed={(v) => changeAiSettings({ maxSpeed: v })} />
+            {/* the lab and the virtual arena side by side (one above the other on narrow screens), so that you watch the robot while you teach it */}
+            <div className={`ai-stage ${live ? '' : 'with-arena'}`} data-tab="lab">
+              <AiLab a={a} snap={snap} enabled={enabled} lab={lab} speed={aiSettings.maxSpeed} onSpeed={(v) => changeAiSettings({ maxSpeed: v })} onPreset={applyActivity} />
+              {!live && <div className="ai-stage-arena"><Arena t={t} sim={sim.current} speed={simSpeed} onSpeed={setSimSpeed} hit={null} foldable={false} compact /></div>}
             </div>
             <div data-tab="setup">
               <div className="ai-setup">
@@ -433,7 +435,6 @@ export default function App() {
                 <AiShare a={a} onSaveFile={saveAiFile} onOpenFile={openAiFile} onCopyLink={copyAiLink} onShowQr={showAiQr} onScan={scanQr} message={shareMsg} foldable={wide} />
               </div>
             </div>
-            {!live && <div data-tab="arena"><Arena t={t} sim={sim.current} speed={simSpeed} onSpeed={setSimSpeed} hit={null} foldable={wide} /></div>}
           </div>
         ) : (
         <div className="col main">
