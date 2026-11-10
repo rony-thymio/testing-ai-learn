@@ -1,6 +1,6 @@
 # Thymio · Neurones
 
-> **AI Lab (this fork):** a second mode, AlphAI-style learning (supervised and reinforcement), is being added. See
+> **AI Lab (this fork):** a second mode, learning (supervised and reinforcement), is being added. See
 > [AI-LAB.md](AI-LAB.md) (in English).
 
 Une page web pour **regarder et régler l'apprentissage du Thymio 3**: le mode « réseau de neurones » du
